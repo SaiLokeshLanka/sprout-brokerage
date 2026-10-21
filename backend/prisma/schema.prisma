@@ -1,0 +1,41 @@
+// Database schema. Money and prices are stored as integer paise (₹1 = 100 paise).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Exchange {
+  NSE
+  BSE
+}
+
+enum InstrumentType {
+  EQUITY
+  INDEX
+}
+
+/// Instrument master: everything that can be quoted or traded.
+model Instrument {
+  id            Int            @id @default(autoincrement())
+  symbol        String
+  exchange      Exchange       @default(NSE)
+  name          String
+  type          InstrumentType @default(EQUITY)
+  sector        String?
+  lotSize       Int            @default(1)
+  tickSizePaise Int            @default(5)
+  /// Reference price (previous close) the market simulator starts from.
+  refPricePaise Int
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([exchange, symbol])
+  @@index([type])
+  @@map("instruments")
+}
