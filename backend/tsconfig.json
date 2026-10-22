@@ -15,8 +15,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noFallthroughCasesInSwitch": true,
-    "forceConsistentCasingInFileNames": true,
-    "incremental": true
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src", "prisma"]
 }
