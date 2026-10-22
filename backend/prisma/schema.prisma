@@ -9,6 +9,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────────────────────────── Instruments ───────────────────────────────
+
 enum Exchange {
   NSE
   BSE
@@ -38,4 +40,115 @@ model Instrument {
   @@unique([exchange, symbol])
   @@index([type])
   @@map("instruments")
+}
+
+// ─────────────────────────────── Users & auth ───────────────────────────────
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+}
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  fullName         String
+  phone            String?
+  kycStatus        KycStatus @default(PENDING)
+  pan              String?   @unique
+  dateOfBirth      DateTime? @db.Date
+  kycVerifiedAt    DateTime?
+  /// Brute-force protection: consecutive failed logins and lock expiry.
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  refreshTokens  RefreshToken[]
+  ledgerAccounts LedgerAccount[]
+  journalEntries JournalEntry[]
+
+  @@map("users")
+}
+
+/// Refresh tokens are stored only as SHA-256 hashes and rotated on every use.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ───────────────────────────── Wallet ledger ─────────────────────────────
+// Double-entry bookkeeping: every money movement is a JournalEntry with
+// LedgerEntries that sum to zero. Entries are append-only — never updated
+// or deleted. LedgerAccount.balancePaise is a cached running total.
+
+enum LedgerAccountType {
+  /// A user's cash available to invest or withdraw.
+  USER_CASH
+  /// The outside world: money entering or leaving Sprout (one shared account).
+  SYSTEM_BANK
+}
+
+model LedgerAccount {
+  id           String            @id @default(uuid())
+  type         LedgerAccountType
+  userId       String?
+  balancePaise BigInt            @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  user    User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@unique([userId, type])
+  @@map("ledger_accounts")
+}
+
+enum JournalType {
+  WELCOME_BONUS
+  DEPOSIT
+  WITHDRAWAL
+}
+
+model JournalEntry {
+  id             String      @id @default(uuid())
+  type           JournalType
+  description    String
+  userId         String
+  /// Client-supplied key so a retried request never moves money twice.
+  idempotencyKey String?
+  createdAt      DateTime    @default(now())
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@map("journal_entries")
+}
+
+model LedgerEntry {
+  id                String   @id @default(uuid())
+  journalId         String
+  accountId         String
+  /// Signed amount: positive = money into the account, negative = money out.
+  amountPaise       BigInt
+  balanceAfterPaise BigInt
+  createdAt         DateTime @default(now())
+
+  journal JournalEntry  @relation(fields: [journalId], references: [id], onDelete: Restrict)
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@map("ledger_entries")
 }

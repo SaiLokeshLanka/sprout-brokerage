@@ -1,25 +1,59 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { BrandLogo } from '../components/common';
-import { useTrade } from '../store/TradeContext';
+import { errorMessage } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
+import { BrandLogo, FullPageLoader } from '../components/common';
+
+type Mode = 'login' | 'register';
+
+const DEMO = { email: 'demo@sprout.dev', password: 'Demo@1234' };
+
+// Mirrors the server rules so users get instant feedback; the server still re-validates everything.
+function validate(mode: Mode, fullName: string, email: string, password: string): string | null {
+  if (mode === 'register' && fullName.trim().length < 2) return 'Enter your full name';
+  if (!/^\S+@\S+\.\S+$/.test(email.trim())) return 'Enter a valid email address';
+  if (!password) return 'Enter your password';
+  if (mode === 'register') {
+    if (password.length < 8) return 'Password must be at least 8 characters';
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return 'Password must contain at least one letter and one number';
+  }
+  return null;
+}
 
 export function LoginPage() {
-  const { user, login } = useTrade();
+  const { status, user, login, register } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [mode, setMode] = useState<Mode>('login');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [pending, setPending] = useState(false);
 
+  if (status === 'loading') return <FullPageLoader />;
   if (user) return <Navigate to="/" replace />;
 
-  const submit = (e: FormEvent) => {
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setError('');
+  };
+
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!/^\S+@\S+\.\S+$/.test(email)) return setError('Enter a valid email address');
-    if (password.length < 6) return setError('Password must be at least 6 characters');
-    login(email.trim());
-    const from = (location.state as { from?: string } | null)?.from ?? '/';
-    navigate(from, { replace: true });
+    const problem = validate(mode, fullName, email, password);
+    if (problem) return setError(problem);
+    setError('');
+    setPending(true);
+    try {
+      if (mode === 'login') await login(email.trim(), password);
+      else await register(fullName.trim(), email.trim(), password);
+      const from = (location.state as { from?: string } | null)?.from ?? '/';
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(errorMessage(err));
+      setPending(false);
+    }
   };
 
   return (
@@ -34,14 +68,46 @@ export function LoginPage() {
         <ul className="login-points">
           <li>Market &amp; limit orders</li>
           <li>Live portfolio P&amp;L</li>
-          <li>Watchlists and charts</li>
+          <li>Secure account with a real wallet ledger</li>
         </ul>
       </section>
 
       <section className="login-card-wrap">
         <form className="card login-card" onSubmit={submit} noValidate data-testid="login-form">
-          <h2>Welcome to Sprout</h2>
-          <p className="muted">Log in to continue</p>
+          <div className="side-tabs auth-tabs" role="tablist">
+            {(['login', 'register'] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={mode === m}
+                className={`side-tab ${mode === m ? 'active buy' : ''}`}
+                onClick={() => switchMode(m)}
+                data-testid={`auth-tab-${m}`}
+              >
+                {m === 'login' ? 'Log in' : 'Create account'}
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <h2>{mode === 'login' ? 'Welcome back' : 'Open your account'}</h2>
+            <p className="muted">{mode === 'login' ? 'Log in to continue' : 'Get ₹1,00,000 of virtual money to start'}</p>
+          </div>
+
+          {mode === 'register' && (
+            <label className="field">
+              <span>Full name</span>
+              <input
+                type="text"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="As on your PAN card"
+                data-testid="register-name"
+              />
+            </label>
+          )}
           <label className="field">
             <span>Email</span>
             <input
@@ -57,22 +123,38 @@ export function LoginPage() {
             <span>Password</span>
             <input
               type="password"
-              autoComplete="current-password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimum 6 characters"
+              placeholder={mode === 'login' ? 'Your password' : 'At least 8 characters, with a letter and a number'}
               data-testid="login-password"
             />
           </label>
+
           {error && (
             <div className="form-error" role="alert" data-testid="login-error">
               {error}
             </div>
           )}
-          <button type="submit" className="btn-primary" data-testid="login-submit">
-            Continue
+
+          <button type="submit" className="btn-primary" disabled={pending} data-testid="login-submit">
+            {pending ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Create account'}
           </button>
-          <p className="muted small center">Demo mode: any valid email and a 6+ character password works.</p>
+
+          {mode === 'login' && (
+            <button
+              type="button"
+              className="btn-text demo-btn"
+              onClick={() => {
+                setEmail(DEMO.email);
+                setPassword(DEMO.password);
+                setError('');
+              }}
+              data-testid="use-demo"
+            >
+              Use demo account ({DEMO.email})
+            </button>
+          )}
         </form>
       </section>
     </div>

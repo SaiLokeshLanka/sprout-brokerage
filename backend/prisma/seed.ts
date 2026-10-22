@@ -1,11 +1,23 @@
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import { openUserCashAccount } from '../src/wallet/ledger';
 import { EQUITIES, INDICES } from './seed-data/instruments';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  const all = [...EQUITIES, ...INDICES];
+/** A ready-to-use, KYC-verified account for manual testing and Playwright. */
+export const DEMO_USER = {
+  email: 'demo@sprout.dev',
+  password: 'Demo@1234',
+  fullName: 'Demo Trader',
+  phone: '9876543210',
+  pan: 'ABCDE1234F',
+  dateOfBirth: '1995-06-15',
+};
+const DEMO_WELCOME_BONUS_PAISE = 100_000n * 100n; // ₹1,00,000
 
+async function seedInstruments() {
+  const all = [...EQUITIES, ...INDICES];
   // Upsert so the seed can be re-run safely (idempotent).
   await prisma.$transaction(
     all.map((i) => {
@@ -23,8 +35,36 @@ async function main() {
       });
     }),
   );
-
   console.log(`Seeded ${EQUITIES.length} equities and ${INDICES.length} indices.`);
+}
+
+async function seedDemoUser() {
+  if (await prisma.user.findUnique({ where: { email: DEMO_USER.email } })) {
+    console.log(`Demo user ${DEMO_USER.email} already exists.`);
+    return;
+  }
+  const passwordHash = await bcrypt.hash(DEMO_USER.password, 10);
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        email: DEMO_USER.email,
+        fullName: DEMO_USER.fullName,
+        phone: DEMO_USER.phone,
+        passwordHash,
+        kycStatus: 'VERIFIED',
+        pan: DEMO_USER.pan,
+        dateOfBirth: new Date(`${DEMO_USER.dateOfBirth}T00:00:00Z`),
+        kycVerifiedAt: new Date(),
+      },
+    });
+    await openUserCashAccount(tx, user.id, DEMO_WELCOME_BONUS_PAISE);
+  });
+  console.log(`Created demo user ${DEMO_USER.email} / ${DEMO_USER.password}`);
+}
+
+async function main() {
+  await seedInstruments();
+  await seedDemoUser();
 }
 
 main()

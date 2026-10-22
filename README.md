@@ -59,17 +59,41 @@ npm run dev            # API on :3000 and web app on :5173
 Create a new migration after editing `backend/prisma/schema.prisma`:
 `npm run db:migrate:new -w backend -- --name describe_change`
 
+## Demo account
+
+Created by `npm run db:seed`: **demo@sprout.dev / Demo@1234** (KYC verified, ₹1,00,000 virtual balance).
+Its PAN `ABCDE1234F` is taken, which is handy for testing the "PAN already linked" rule.
+
 ## API (so far)
 
-| Method | Path                         | Description                                  |
-| ------ | ---------------------------- | -------------------------------------------- |
-| GET    | `/api/health`                | Liveness + database status                   |
-| GET    | `/api/instruments`           | List instruments. Query: `type=EQUITY\|INDEX`, `q=search` |
-| GET    | `/api/instruments/:symbol`   | One instrument, e.g. `/api/instruments/RELIANCE` |
+Every route requires `Authorization: Bearer <accessToken>` unless marked public.
+
+| Method | Path                         | Auth   | Description                                  |
+| ------ | ---------------------------- | ------ | -------------------------------------------- |
+| GET    | `/api/health`                | public | Liveness + database status                   |
+| GET    | `/api/instruments`           | public | List instruments. Query: `type=EQUITY\|INDEX`, `q=search` |
+| GET    | `/api/instruments/:symbol`   | public | One instrument, e.g. `/api/instruments/RELIANCE` |
+| POST   | `/api/auth/register`         | public | `{ fullName, email, password }` → access token + refresh cookie |
+| POST   | `/api/auth/login`            | public | `{ email, password }`; locks for 15 min after 5 failures (423) |
+| POST   | `/api/auth/refresh`          | cookie | Rotates the refresh cookie, returns a new access token |
+| POST   | `/api/auth/logout`           | cookie | Revokes the session                          |
+| GET    | `/api/me`                    | yes    | Your profile                                 |
+| PATCH  | `/api/me`                    | yes    | `{ fullName?, phone? }`                      |
+| POST   | `/api/me/kyc`                | yes    | `{ pan, dateOfBirth }` — 18+, PAN unique     |
+| GET    | `/api/wallet`                | yes    | Balance (paise)                              |
+| GET    | `/api/wallet/transactions`   | yes    | Ledger history. Query: `limit`, `cursor`     |
+| POST   | `/api/wallet/deposit`        | yes    | `{ amountPaise }`; optional `Idempotency-Key` header |
+| POST   | `/api/wallet/withdraw`       | yes    | `{ amountPaise }`; needs verified KYC        |
+
+## Testing
+
+- `npm run test:api -w backend` — API smoke test (52 checks: auth, lockout, token rotation, KYC rules,
+  idempotency, concurrent withdrawals, ledger integrity). Needs the API running.
 
 ## Conventions
 
 - **Money is stored as integer paise** (₹1 = 100 paise) — never floating point.
+- **Double-entry ledger**: every money movement is a journal whose entries sum to zero; entries are never edited.
 - Prices are rounded to the instrument's tick size (₹0.05 for NSE equities).
 - Every interactive UI element has a `data-testid` for Playwright.
 
@@ -77,7 +101,7 @@ Create a new migration after editing `backend/prisma/schema.prisma`:
 
 - [x] Frontend UI (simulated market in the browser)
 - [x] **Phase 0** — monorepo, Docker infra, backend skeleton, instrument master
-- [ ] Phase 1 — auth, KYC, wallet ledger
+- [x] **Phase 1** — auth (JWT + rotating refresh cookie), profile & KYC, double-entry wallet ledger
 - [ ] Phase 2 — market data service + WebSockets
 - [ ] Phase 3 — order management system & execution engine
 - [ ] Phase 4 — portfolio & P&L

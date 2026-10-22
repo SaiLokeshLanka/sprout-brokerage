@@ -1,10 +1,14 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarket } from '../market/MarketContext';
 import { formatINR, roundToTick, toPaise } from '../utils/format';
+import { useWallet } from '../wallet/WalletContext';
 
 /**
- * Paper-trading account: funds, holdings, orders and a tiny matching engine.
- * This mirrors the future backend OMS so the UI contract stays the same.
+ * Paper-trading account: holdings, orders and a tiny matching engine.
+ *
+ * Cash comes from the REAL backend wallet. Trades are still simulated in the
+ * browser (until the Phase 3 order service), so their net cash effect is tracked
+ * here as tradeCashDeltaPaise and applied on top of the wallet balance.
  */
 
 export type Side = 'BUY' | 'SELL';
@@ -34,14 +38,9 @@ export interface Holding {
   avgPrice: number;
 }
 
-export interface User {
-  name: string;
-  email: string;
-}
-
 export interface TradeState {
-  user: User | null;
-  cashPaise: number;
+  /** Net cash spent (−) or received (+) by simulated trades, applied on top of the wallet. */
+  tradeCashDeltaPaise: number;
   realizedPaise: number;
   holdings: Record<string, Holding>;
   orders: Order[];
@@ -63,21 +62,20 @@ export interface PlaceOrderResult {
   order?: Order;
 }
 
-const STORAGE_KEY = 'sprout.trade.v1';
-export const STARTING_CASH_PAISE = toPaise(500_000);
+/** Each user gets their own simulated portfolio in this browser. */
+const storageKey = (userId: string) => `sprout.trade.v2.${userId}`;
 
 const defaultState = (): TradeState => ({
-  user: null,
-  cashPaise: STARTING_CASH_PAISE,
+  tradeCashDeltaPaise: 0,
   realizedPaise: 0,
   holdings: {},
   orders: [],
   watchlist: ['RELIANCE', 'TCS', 'INFY', 'ZOMATO'],
 });
 
-function loadState(): TradeState {
+function loadState(userId: string): TradeState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(userId));
     if (raw) return { ...defaultState(), ...JSON.parse(raw) };
   } catch {
     // storage unavailable — start fresh
@@ -104,10 +102,10 @@ function applyFill(s: TradeState, order: Order, fillPrice: number): TradeState {
   const value = toPaise(fillPrice) * order.qty;
   const holdings = { ...s.holdings };
   const held = holdings[order.symbol];
-  let { cashPaise, realizedPaise } = s;
+  let { tradeCashDeltaPaise, realizedPaise } = s;
 
   if (order.side === 'BUY') {
-    cashPaise -= value;
+    tradeCashDeltaPaise -= value;
     const qty = (held?.qty ?? 0) + order.qty;
     const avgPrice = held ? (held.avgPrice * held.qty + fillPrice * order.qty) / qty : fillPrice;
     holdings[order.symbol] = { symbol: order.symbol, qty, avgPrice };
@@ -116,7 +114,7 @@ function applyFill(s: TradeState, order: Order, fillPrice: number): TradeState {
       const rejected: Order = { ...order, status: 'REJECTED', reason: 'Insufficient holdings', blockedPaise: 0, updatedAt: now };
       return { ...s, orders: upsertOrder(s.orders, rejected) };
     }
-    cashPaise += value;
+    tradeCashDeltaPaise += value;
     realizedPaise += Math.round((fillPrice - held.avgPrice) * 100 * order.qty);
     const qty = held.qty - order.qty;
     if (qty > 0) holdings[order.symbol] = { ...held, qty };
@@ -124,31 +122,32 @@ function applyFill(s: TradeState, order: Order, fillPrice: number): TradeState {
   }
 
   const filled: Order = { ...order, status: 'EXECUTED', fillPrice, blockedPaise: 0, updatedAt: now };
-  return { ...s, cashPaise, realizedPaise, holdings, orders: upsertOrder(s.orders, filled) };
+  return { ...s, tradeCashDeltaPaise, realizedPaise, holdings, orders: upsertOrder(s.orders, filled) };
 }
 
 interface TradeContextValue {
   state: TradeState;
-  user: User | null;
+  /** Wallet balance + simulated trade cash − money blocked by open orders. */
   availablePaise: number;
   blockedPaise: number;
-  login: (email: string) => void;
-  logout: () => void;
   placeOrder: (input: PlaceOrderInput) => PlaceOrderResult;
   cancelOrder: (id: string) => void;
-  addFunds: (rupees: number) => void;
   toggleWatchlist: (symbol: string) => void;
+  /** Clears simulated holdings and orders. The real wallet is not touched. */
   resetAccount: () => void;
 }
 
 const TradeContext = createContext<TradeContextValue | null>(null);
 
-export function TradeProvider({ children }: { children: ReactNode }) {
+export function TradeProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const { quotes } = useMarket();
-  const [state, setState] = useState<TradeState>(loadState);
+  const { balancePaise: walletPaise } = useWallet();
+  const [state, setState] = useState<TradeState>(() => loadState(userId));
   const stateRef = useRef(state);
   const quotesRef = useRef(quotes);
   quotesRef.current = quotes;
+  const walletRef = useRef(walletPaise ?? 0);
+  walletRef.current = walletPaise ?? 0;
 
   const commit = useCallback((next: TradeState) => {
     stateRef.current = next;
@@ -157,11 +156,11 @@ export function TradeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey(userId), JSON.stringify(state));
     } catch {
       // storage unavailable — state lives in memory only
     }
-  }, [state]);
+  }, [state, userId]);
 
   // Matching engine: on every tick, fill open limit orders whose price was reached.
   useEffect(() => {
@@ -210,7 +209,7 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       let blocked = 0;
       if (order.side === 'BUY') {
         blocked = toPaise(refPrice) * order.qty;
-        if (blocked > s.cashPaise - blockedPaiseOf(s)) return reject('Insufficient funds');
+        if (blocked > walletRef.current + s.tradeCashDeltaPaise - blockedPaiseOf(s)) return reject('Insufficient funds');
       } else {
         const held = s.holdings[order.symbol]?.qty ?? 0;
         const reserved = s.orders
@@ -255,18 +254,10 @@ export function TradeProvider({ children }: { children: ReactNode }) {
     const blockedPaise = blockedPaiseOf(state);
     return {
       state,
-      user: state.user,
       blockedPaise,
-      availablePaise: state.cashPaise - blockedPaise,
+      availablePaise: (walletPaise ?? 0) + state.tradeCashDeltaPaise - blockedPaise,
       placeOrder,
       cancelOrder,
-      login: (email) => {
-        const local = email.split('@')[0].replace(/[._-]+/g, ' ');
-        const name = local.replace(/\b\w/g, (c) => c.toUpperCase());
-        commit({ ...stateRef.current, user: { email, name } });
-      },
-      logout: () => commit({ ...stateRef.current, user: null }),
-      addFunds: (rupees) => commit({ ...stateRef.current, cashPaise: stateRef.current.cashPaise + toPaise(rupees) }),
       toggleWatchlist: (symbol) => {
         const s = stateRef.current;
         const watchlist = s.watchlist.includes(symbol) ? s.watchlist.filter((x) => x !== symbol) : [...s.watchlist, symbol];
@@ -274,10 +265,10 @@ export function TradeProvider({ children }: { children: ReactNode }) {
       },
       resetAccount: () => {
         const s = stateRef.current;
-        commit({ ...defaultState(), user: s.user, watchlist: s.watchlist });
+        commit({ ...defaultState(), watchlist: s.watchlist });
       },
     };
-  }, [state, placeOrder, cancelOrder, commit]);
+  }, [state, walletPaise, placeOrder, cancelOrder, commit]);
 
   return <TradeContext.Provider value={value}>{children}</TradeContext.Provider>;
 }

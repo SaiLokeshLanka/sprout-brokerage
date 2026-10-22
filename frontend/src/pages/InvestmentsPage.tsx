@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { EmptyState, StockLogo } from '../components/common';
 import { InvestmentSummary } from '../components/InvestmentSummary';
@@ -7,20 +6,14 @@ import { useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatChange, formatINR, formatPaise } from '../utils/format';
 import { computePortfolio } from '../utils/portfolio';
-
-const QUICK_ADD = [10_000, 25_000, 50_000];
+import { useWallet } from '../wallet/WalletContext';
 
 export function InvestmentsPage() {
-  const { state, availablePaise, blockedPaise, addFunds, resetAccount } = useTrade();
+  const { state, availablePaise, blockedPaise, resetAccount } = useTrade();
+  const { balancePaise } = useWallet();
   const { quotes } = useMarket();
   const navigate = useNavigate();
-  const [amount, setAmount] = useState('');
   const p = computePortfolio(state.holdings, quotes);
-
-  const add = (rupees: number) => {
-    if (rupees > 0) addFunds(rupees);
-    setAmount('');
-  };
 
   return (
     <div className="page-grid">
@@ -102,6 +95,10 @@ export function InvestmentsPage() {
           <div className="muted small">Available to invest</div>
           <div className="funds-rows">
             <div>
+              <span className="muted">Wallet balance</span>
+              <span data-testid="funds-wallet">{balancePaise === null ? '—' : formatPaise(balancePaise)}</span>
+            </div>
+            <div>
               <span className="muted">Blocked for open orders</span>
               <span data-testid="funds-blocked">{formatPaise(blockedPaise)}</span>
             </div>
@@ -112,43 +109,23 @@ export function InvestmentsPage() {
               </span>
             </div>
           </div>
-          <form
-            className="add-money"
-            onSubmit={(e) => {
-              e.preventDefault();
-              add(Number(amount));
-            }}
-          >
-            <label className="field">
-              <span>Add money (virtual)</span>
-              <input
-                type="number"
-                min={1}
-                placeholder="₹ Amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                data-testid="add-money-input"
-              />
-            </label>
-            <div className="chip-group">
-              {QUICK_ADD.map((a) => (
-                <button type="button" key={a} className="chip" onClick={() => setAmount(String(a))}>
-                  +{formatINR(a).replace('.00', '')}
-                </button>
-              ))}
-            </div>
-            <button type="submit" className="btn-primary" data-testid="add-money-submit">
+          <div className="funds-actions">
+            <Link to="/funds" className="btn-primary" data-testid="go-add-money">
               Add money
-            </button>
-          </form>
+            </Link>
+            <Link to="/funds?tab=withdraw" className="btn-outline" data-testid="go-withdraw">
+              Withdraw
+            </Link>
+          </div>
           <button
             className="btn-text danger"
             onClick={() => {
-              if (window.confirm('Reset your paper account? Holdings and orders will be cleared.')) resetAccount();
+              if (window.confirm('Reset your simulated trades? Holdings and orders will be cleared. Your wallet is not affected.'))
+                resetAccount();
             }}
             data-testid="reset-account"
           >
-            Reset paper account
+            Reset simulated trades
           </button>
         </div>
       </aside>

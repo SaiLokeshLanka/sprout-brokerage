@@ -15,6 +15,14 @@ export function BrandLogo({ size = 32 }: { size?: number }) {
   );
 }
 
+export function FullPageLoader() {
+  return (
+    <div className="full-loader" role="status" aria-label="Loading" data-testid="app-loading">
+      <BrandLogo size={48} />
+    </div>
+  );
+}
+
 export function StockLogo({ symbol, size = 40 }: { symbol: string; size?: number }) {
   const inst = STOCK_MAP[symbol];
   return (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { STOCKS } from '../data/instruments';
 import { useTrade } from '../store/TradeContext';
 import { formatPaise } from '../utils/format';
@@ -13,7 +14,8 @@ const NAV = [
 ];
 
 export function Header() {
-  const { user, logout, availablePaise } = useTrade();
+  const { user, logout } = useAuth();
+  const { availablePaise } = useTrade();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -120,12 +122,12 @@ export function Header() {
           </button>
           <div className="profile" ref={menuRef}>
             <button className="avatar" onClick={() => setMenuOpen((o) => !o)} aria-label="Account menu" data-testid="profile-button">
-              {user?.name.charAt(0) ?? '?'}
+              {user?.fullName.charAt(0).toUpperCase() ?? '?'}
             </button>
             {menuOpen && (
               <div className="menu" data-testid="profile-menu">
                 <div className="menu-user">
-                  <div className="strong">{user?.name}</div>
+                  <div className="strong">{user?.fullName}</div>
                   <div className="muted small">{user?.email}</div>
                 </div>
                 <div className="menu-row">
@@ -136,12 +138,32 @@ export function Header() {
                   className="menu-item"
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate('/investments');
+                    navigate('/funds');
                   }}
+                  data-testid="menu-funds"
                 >
-                  Add money
+                  Funds &amp; transactions
                 </button>
-                <button className="menu-item danger" onClick={logout} data-testid="logout-button">
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    navigate('/account');
+                  }}
+                  data-testid="menu-account"
+                >
+                  Profile &amp; KYC
+                  {user?.kycStatus === 'PENDING' && <span className="dot-badge">Pending</span>}
+                </button>
+                <button
+                  className="menu-item danger"
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    await logout();
+                    navigate('/login', { replace: true });
+                  }}
+                  data-testid="logout-button"
+                >
                   Log out
                 </button>
               </div>

@@ -1,7 +1,9 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
 import { InstrumentType } from '@prisma/client';
+import { Public } from '../common/public.decorator';
 import { InstrumentsService } from './instruments.service';
 
+@Public()
 @Controller('instruments')
 export class InstrumentsController {
   constructor(private readonly instruments: InstrumentsService) {}
