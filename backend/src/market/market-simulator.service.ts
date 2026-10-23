@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
+import { EventEmitter } from 'node:events';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS } from '../redis/redis.module';
 import { istParts, MarketMode, NSE_CLOSE_MINUTE, NSE_OPEN_MINUTE, sessionState } from './market-clock';
@@ -52,6 +53,14 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
   private lastPublishedOpen: boolean | null = null;
   private lastWarnAt = 0;
 
+  /**
+   * In-process notifications for other services (the order matcher):
+   *   'tick'           prices changed (every tick, and after a test hook sets a price)
+   *   'session-closed' the market just went from open to closed
+   *   'rollover'       a new trading day started
+   */
+  readonly events = new EventEmitter();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -75,6 +84,11 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
   }
 
   // ───────────────────────────── Public API ─────────────────────────────
+
+  /** Latest in-memory quote (the simulator is the source of truth for prices). */
+  getQuote(symbol: string): Quote | undefined {
+    return this.quotes.get(symbol);
+  }
 
   status(): MarketStatus {
     const base =
@@ -132,6 +146,7 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
     if (!quote || !inst) throw new NotFoundException(`No market data for ${symbol}`);
     this.applyPrice(inst, quote, rupees * 100, 0);
     await this.publishAll();
+    this.events.emit('tick');
     return quote;
   }
 
@@ -148,8 +163,10 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
 
       const status = this.status();
       if (status.open !== this.lastPublishedOpen) {
+        const wasOpen = this.lastPublishedOpen;
         this.lastPublishedOpen = status.open;
         await this.publishStatus();
+        if (wasOpen && !status.open) this.events.emit('session-closed');
       }
       if (!status.open || this.paused) return;
 
@@ -159,6 +176,7 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
         this.applyPrice(inst, quote, quote.ltpPaise * (1 + move), Math.floor(Math.random() * 2_000));
       }
       await this.publishAll();
+      this.events.emit('tick');
     } catch (err) {
       this.warnThrottled(`Tick failed: ${(err as Error).message}`);
     } finally {
@@ -303,6 +321,7 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
     } catch (err) {
       this.warnThrottled(`Could not save closing prices: ${(err as Error).message}`);
     }
+    this.events.emit('rollover');
   }
 
   // ───────────────────────────── Publishing ─────────────────────────────

@@ -10,6 +10,8 @@ import { JournalType, Prisma } from '@prisma/client';
 
 /** The single "outside world" account. Created by a migration, so it always exists. */
 export const SYSTEM_BANK_ACCOUNT_ID = 'system-bank';
+/** The single "market" account every buy pays into and every sell is paid from. Created by a migration. */
+export const SYSTEM_EXCHANGE_ACCOUNT_ID = 'system-exchange';
 
 export class InsufficientFundsError extends Error {
   constructor() {
@@ -85,9 +87,10 @@ export async function postJournal(tx: Prisma.TransactionClient, input: JournalIn
   return journal;
 }
 
-/** Opens a user's cash account and credits the welcome bonus (if any) from the system bank. */
-export async function openUserCashAccount(tx: Prisma.TransactionClient, userId: string, welcomeBonusPaise: bigint) {
+/** Opens a user's cash and blocked-funds accounts and credits the welcome bonus (if any) from the system bank. */
+export async function openUserAccounts(tx: Prisma.TransactionClient, userId: string, welcomeBonusPaise: bigint) {
   const account = await tx.ledgerAccount.create({ data: { type: 'USER_CASH', userId } });
+  await tx.ledgerAccount.create({ data: { type: 'USER_BLOCKED', userId } });
   if (welcomeBonusPaise > 0n) {
     await postJournal(tx, {
       userId,
@@ -100,4 +103,16 @@ export async function openUserCashAccount(tx: Prisma.TransactionClient, userId: 
     });
   }
   return account;
+}
+
+/** The ids of a user's cash and blocked accounts. */
+export async function userAccountIds(tx: Prisma.TransactionClient, userId: string) {
+  const accounts = await tx.ledgerAccount.findMany({
+    where: { userId, type: { in: ['USER_CASH', 'USER_BLOCKED'] } },
+    select: { id: true, type: true },
+  });
+  const cash = accounts.find((a) => a.type === 'USER_CASH')?.id;
+  const blocked = accounts.find((a) => a.type === 'USER_BLOCKED')?.id;
+  if (!cash || !blocked) throw new Error(`Ledger accounts missing for user ${userId}`);
+  return { cash, blocked };
 }

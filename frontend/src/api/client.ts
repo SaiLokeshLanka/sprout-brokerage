@@ -48,6 +48,9 @@ export const setAccessToken = (token: string | null) => {
   accessToken = token;
 };
 
+/** Current in-memory access token (used to authenticate the private WebSocket). */
+export const getAccessToken = () => accessToken;
+
 /** Called when the session can't be renewed (expired, logged out elsewhere, revoked). */
 export const onSessionLost = (handler: () => void) => {
   sessionLostHandler = handler;
@@ -126,6 +129,7 @@ export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, undefined, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body, options),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('PATCH', path, body, options),
+  delete: <T>(path: string, options?: RequestOptions) => request<T>('DELETE', path, undefined, options),
 };
 
 export const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');

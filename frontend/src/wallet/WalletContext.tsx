@@ -13,7 +13,7 @@ export interface MoveResult {
 export interface WalletTxn {
   id: string;
   transactionId: string;
-  type: 'WELCOME_BONUS' | 'DEPOSIT' | 'WITHDRAWAL';
+  type: 'WELCOME_BONUS' | 'DEPOSIT' | 'WITHDRAWAL' | 'ORDER_BLOCK' | 'ORDER_RELEASE' | 'TRADE_BUY' | 'TRADE_SELL';
   description: string;
   amountPaise: number;
   balanceAfterPaise: number;
@@ -26,8 +26,10 @@ export interface TxnPage {
 }
 
 interface WalletContextValue {
-  /** Real wallet balance from the backend ledger; null until loaded. */
+  /** Free cash from the backend ledger (investable and withdrawable); null until loaded. */
   balancePaise: number | null;
+  /** Cash held back for open buy orders. */
+  blockedPaise: number;
   /** Bumps after every money movement so lists can reload. */
   version: number;
   refresh: () => Promise<void>;
@@ -40,11 +42,15 @@ const WalletContext = createContext<WalletContextValue | null>(null);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [balancePaise, setBalancePaise] = useState<number | null>(null);
+  const [blockedPaise, setBlockedPaise] = useState(0);
   const [version, setVersion] = useState(0);
 
+  /** Reloads balances; bumps `version` so open transaction lists reload too. */
   const refresh = useCallback(async () => {
-    const wallet = await api.get<{ balancePaise: number }>('/wallet');
+    const wallet = await api.get<{ balancePaise: number; blockedPaise: number }>('/wallet');
     setBalancePaise(wallet.balancePaise);
+    setBlockedPaise(wallet.blockedPaise);
+    setVersion((v) => v + 1);
   }, []);
 
   useEffect(() => {
@@ -71,13 +77,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WalletContextValue>(
     () => ({
       balancePaise,
+      blockedPaise,
       version,
       refresh,
       loadTransactions,
       deposit: (amountPaise) => move('deposit', amountPaise),
       withdraw: (amountPaise) => move('withdraw', amountPaise),
     }),
-    [balancePaise, version, refresh, move, loadTransactions],
+    [balancePaise, blockedPaise, version, refresh, move, loadTransactions],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

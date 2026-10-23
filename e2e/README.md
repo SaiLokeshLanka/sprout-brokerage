@@ -22,7 +22,8 @@ e2e/
 ├── playwright.config.ts   shared settings: base URL, browser, screenshots/video/trace on failure
 └── tests/
     ├── login.spec.ts      redirect, wrong password, form validation, demo login/logout
-    └── market.spec.ts     prices set via API test hooks appear in the UI; closed market blocks trading
+    ├── market.spec.ts     prices set via API test hooks appear in the UI; closed market blocks trading
+    └── trade.spec.ts      buy, limit order fill, cancel, sell with profit, rejection (fresh user per test)
 ```
 
 ## Notes

@@ -7,7 +7,7 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test:api": "node scripts/api-smoke.mjs && node scripts/market-smoke.mjs",
+    "test:api": "node scripts/api-smoke.mjs && node scripts/market-smoke.mjs && node scripts/orders-smoke.mjs",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:new": "prisma migrate dev",

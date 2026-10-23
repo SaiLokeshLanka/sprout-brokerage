@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { openUserCashAccount } from '../src/wallet/ledger';
+import { openUserAccounts } from '../src/wallet/ledger';
 import { FUNDAMENTALS } from './seed-data/fundamentals';
 import { EQUITIES, INDICES } from './seed-data/instruments';
 
@@ -60,7 +60,7 @@ async function seedDemoUser() {
         kycVerifiedAt: new Date(),
       },
     });
-    await openUserCashAccount(tx, user.id, DEMO_WELCOME_BONUS_PAISE);
+    await openUserAccounts(tx, user.id, DEMO_WELCOME_BONUS_PAISE);
   });
   console.log(`Created demo user ${DEMO_USER.email} / ${DEMO_USER.password}`);
 }

@@ -72,6 +72,9 @@ model User {
   refreshTokens  RefreshToken[]
   ledgerAccounts LedgerAccount[]
   journalEntries JournalEntry[]
+  orders         Order[]
+  trades         Trade[]
+  holdings       Holding[]
 
   @@map("users")
 }
@@ -99,8 +102,12 @@ model RefreshToken {
 enum LedgerAccountType {
   /// A user's cash available to invest or withdraw.
   USER_CASH
+  /// A user's cash held back for their open buy orders (can't be spent or withdrawn).
+  USER_BLOCKED
   /// The outside world: money entering or leaving Sprout (one shared account).
   SYSTEM_BANK
+  /// The market: counterparty for every buy and sell (one shared account).
+  SYSTEM_EXCHANGE
 }
 
 model LedgerAccount {
@@ -122,6 +129,14 @@ enum JournalType {
   WELCOME_BONUS
   DEPOSIT
   WITHDRAWAL
+  /// Cash → blocked, when a buy order waits for its price
+  ORDER_BLOCK
+  /// Blocked → cash, when an open buy order is cancelled or expires
+  ORDER_RELEASE
+  /// Cash (or blocked) → exchange, when a buy executes
+  TRADE_BUY
+  /// Exchange → cash, when a sell executes
+  TRADE_SELL
 }
 
 model JournalEntry {
@@ -155,4 +170,100 @@ model LedgerEntry {
 
   @@index([accountId, createdAt])
   @@map("ledger_entries")
+}
+
+// ─────────────────────────── Orders & holdings ───────────────────────────
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum ProductType {
+  DELIVERY
+  INTRADAY
+}
+
+enum OrderStatus {
+  /// Waiting for the price to reach the limit
+  OPEN
+  EXECUTED
+  CANCELLED
+  /// Open at the end of the trading day, so the exchange cancelled it
+  EXPIRED
+  /// Refused by risk checks (funds, holdings, market closed)
+  REJECTED
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  symbol          String
+  side            OrderSide
+  orderType       OrderType
+  product         ProductType @default(DELIVERY)
+  qty             Int
+  limitPricePaise Int?
+  status          OrderStatus
+  /// Money held in the user's USER_BLOCKED account for this OPEN buy order.
+  blockedPaise    BigInt      @default(0)
+  fillPricePaise  Int?
+  /// Why it was rejected, cancelled or expired.
+  statusReason    String?
+  idempotencyKey  String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  executedAt      DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  trades Trade[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("orders")
+}
+
+/// One execution of an order (we fill orders completely, so one trade per executed order).
+model Trade {
+  id               String    @id @default(uuid())
+  orderId          String
+  userId           String
+  symbol           String
+  side             OrderSide
+  qty              Int
+  pricePaise       Int
+  valuePaise       BigInt
+  /// For sells: sale value minus the average cost of the shares sold.
+  realizedPnlPaise BigInt?
+  createdAt        DateTime  @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@map("trades")
+}
+
+/// Shares a user owns. Average price = totalCostPaise / qty.
+model Holding {
+  id             String   @id @default(uuid())
+  userId         String
+  symbol         String
+  qty            Int      @default(0)
+  /// Shares promised to OPEN sell orders (can't be sold twice).
+  reservedQty    Int      @default(0)
+  totalCostPaise BigInt   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, symbol])
+  @@map("holdings")
 }

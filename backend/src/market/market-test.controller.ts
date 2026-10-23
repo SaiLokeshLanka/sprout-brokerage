@@ -1,23 +1,8 @@
-import { Body, CanActivate, Controller, HttpCode, Injectable, NotFoundException, Post, UseGuards } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { IsIn, IsNumber, IsPositive, IsString } from 'class-validator';
 import { Public } from '../common/public.decorator';
+import { TestHooksGuard } from '../common/test-hooks.guard';
 import { MarketSimulatorService } from './market-simulator.service';
-
-/**
- * Hides the test hooks completely (404) unless ENABLE_TEST_HOOKS=true, and
- * always in production — they let anyone move prices.
- */
-@Injectable()
-export class TestHooksGuard implements CanActivate {
-  constructor(private readonly config: ConfigService) {}
-
-  canActivate() {
-    const enabled = this.config.get('ENABLE_TEST_HOOKS') === 'true' && this.config.get('NODE_ENV') !== 'production';
-    if (!enabled) throw new NotFoundException();
-    return true;
-  }
-}
 
 class SetPriceDto {
   @IsString()

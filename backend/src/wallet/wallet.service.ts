@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { JournalEntry, LedgerEntry, Prisma } from '@prisma/client';
 import { isUniqueViolation } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
-import { InsufficientFundsError, openUserCashAccount, postJournal, SYSTEM_BANK_ACCOUNT_ID } from './ledger';
+import { InsufficientFundsError, openUserAccounts, postJournal, SYSTEM_BANK_ACCOUNT_ID } from './ledger';
 
 type MoveType = 'DEPOSIT' | 'WITHDRAWAL';
 
@@ -27,15 +27,25 @@ export class WalletService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Called inside the registration transaction: new user → cash account + welcome bonus. */
+  /** Called inside the registration transaction: new user → cash + blocked accounts + welcome bonus. */
   openAccount(tx: Prisma.TransactionClient, userId: string) {
     const bonusRupees = Number(this.config.get('WELCOME_BONUS_RUPEES', 100_000));
-    return openUserCashAccount(tx, userId, BigInt(Math.round(bonusRupees * 100)));
+    return openUserAccounts(tx, userId, BigInt(Math.round(bonusRupees * 100)));
   }
 
+  /** balancePaise = free cash (investable and withdrawable); blockedPaise = held for open buy orders. */
   async getBalance(userId: string) {
-    const account = await this.cashAccount(userId);
-    return { balancePaise: Number(account.balancePaise), currency: 'INR' as const };
+    const accounts = await this.prisma.ledgerAccount.findMany({
+      where: { userId, type: { in: ['USER_CASH', 'USER_BLOCKED'] } },
+    });
+    const cash = accounts.find((a) => a.type === 'USER_CASH');
+    if (!cash) throw new NotFoundException('Wallet not found');
+    const blocked = accounts.find((a) => a.type === 'USER_BLOCKED');
+    return {
+      balancePaise: Number(cash.balancePaise),
+      blockedPaise: Number(blocked?.balancePaise ?? 0n),
+      currency: 'INR' as const,
+    };
   }
 
   deposit(userId: string, amountPaise: number, idempotencyKey?: string) {

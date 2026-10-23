@@ -8,7 +8,7 @@ import { computePortfolio } from '../utils/portfolio';
 import { useWallet } from '../wallet/WalletContext';
 
 export function InvestmentsPage() {
-  const { state, availablePaise, blockedPaise, resetAccount } = useTrade();
+  const { state, availablePaise, blockedPaise } = useTrade();
   const { balancePaise } = useWallet();
   const { quotes, bySymbol } = useMarket();
   const navigate = useNavigate();
@@ -94,8 +94,8 @@ export function InvestmentsPage() {
           <div className="muted small">Available to invest</div>
           <div className="funds-rows">
             <div>
-              <span className="muted">Wallet balance</span>
-              <span data-testid="funds-wallet">{balancePaise === null ? '—' : formatPaise(balancePaise)}</span>
+              <span className="muted">Total funds</span>
+              <span data-testid="funds-wallet">{balancePaise === null ? '—' : formatPaise(balancePaise + blockedPaise)}</span>
             </div>
             <div>
               <span className="muted">Blocked for open orders</span>
@@ -116,16 +116,6 @@ export function InvestmentsPage() {
               Withdraw
             </Link>
           </div>
-          <button
-            className="btn-text danger"
-            onClick={() => {
-              if (window.confirm('Reset your simulated trades? Holdings and orders will be cleared. Your wallet is not affected.'))
-                resetAccount();
-            }}
-            data-testid="reset-account"
-          >
-            Reset simulated trades
-          </button>
         </div>
       </aside>
     </div>

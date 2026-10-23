@@ -15,6 +15,7 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
   const [qty, setQty] = useState('1');
   const [limitPrice, setLimitPrice] = useState('');
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     setResult(null);
@@ -25,7 +26,9 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
   const qtyNum = Number(qty);
   const price = orderType === 'MARKET' ? ltp : Number(limitPrice);
   const approxPaise = qtyNum > 0 && price > 0 ? toPaise(price) * qtyNum : 0;
-  const held = state.holdings[symbol]?.qty ?? 0;
+  const holding = state.holdings[symbol];
+  const held = holding?.qty ?? 0;
+  const sellable = held - (holding?.reservedQty ?? 0);
   const insufficient = side === 'BUY' && approxPaise > availablePaise;
 
   const switchType = (t: OrderType) => {
@@ -33,9 +36,12 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
     if (t === 'LIMIT' && !limitPrice) setLimitPrice(ltp.toFixed(2));
   };
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const r = placeOrder({
+    if (pending) return; // one click = one order
+    setPending(true);
+    setResult(null);
+    const r = await placeOrder({
       symbol,
       side,
       qty: qtyNum,
@@ -44,6 +50,7 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
       limitPrice: orderType === 'LIMIT' ? Number(limitPrice) : undefined,
     });
     setResult({ ok: r.ok, message: r.message });
+    setPending(false);
   };
 
   return (
@@ -160,6 +167,7 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
           ) : (
             <span>
               Holding: <b data-testid="order-holding">{held} shares</b>
+              {sellable < held && <span className="muted"> ({sellable} free)</span>}
             </span>
           )}
           <span>
@@ -179,10 +187,10 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
         <button
           type="submit"
           className={`btn-primary ${side === 'SELL' ? 'sell' : ''}`}
-          disabled={marketClosed}
+          disabled={marketClosed || pending}
           data-testid="place-order"
         >
-          {side === 'BUY' ? 'Buy' : 'Sell'}
+          {pending ? 'Placing order…' : side === 'BUY' ? 'Buy' : 'Sell'}
         </button>
       </div>
     </form>

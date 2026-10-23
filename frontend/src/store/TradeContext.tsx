@@ -1,21 +1,24 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useMarket } from '../market/MarketContext';
-import { formatINR, roundToTick, toPaise } from '../utils/format';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { io } from 'socket.io-client';
+import { api, errorMessage, getAccessToken, refreshSession } from '../api/client';
+import { formatINR } from '../utils/format';
 import { useWallet } from '../wallet/WalletContext';
 
 /**
- * Paper-trading account: holdings, orders and a tiny matching engine.
+ * Trading state from the server's Order Management System:
+ * orders (GET /api/orders), holdings + realised P&L (GET /api/portfolio/holdings),
+ * live order updates over the private WebSocket namespace /account.
  *
- * Cash comes from the REAL backend wallet. Trades are still simulated in the
- * browser (until the Phase 3 order service), so their net cash effect is tracked
- * here as tradeCashDeltaPaise and applied on top of the wallet balance.
+ * Every rule (funds, holdings, market hours, prices) is enforced by the server.
+ * Only the watchlist is kept in this browser.
  */
 
 export type Side = 'BUY' | 'SELL';
 export type OrderType = 'MARKET' | 'LIMIT';
 export type Product = 'DELIVERY' | 'INTRADAY';
-export type OrderStatus = 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'REJECTED';
+export type OrderStatus = 'OPEN' | 'EXECUTED' | 'CANCELLED' | 'EXPIRED' | 'REJECTED';
 
+/** An order with prices in rupees, for the UI. */
 export interface Order {
   id: string;
   symbol: string;
@@ -35,15 +38,15 @@ export interface Order {
 export interface Holding {
   symbol: string;
   qty: number;
+  /** Shares promised to open sell orders. */
+  reservedQty: number;
   avgPrice: number;
 }
 
 export interface TradeState {
-  /** Net cash spent (−) or received (+) by simulated trades, applied on top of the wallet. */
-  tradeCashDeltaPaise: number;
-  realizedPaise: number;
-  holdings: Record<string, Holding>;
   orders: Order[];
+  holdings: Record<string, Holding>;
+  realizedPaise: number;
   watchlist: string[];
 }
 
@@ -53,6 +56,7 @@ export interface PlaceOrderInput {
   qty: number;
   orderType: OrderType;
   product: Product;
+  /** Rupees. */
   limitPrice?: number;
 }
 
@@ -62,218 +66,220 @@ export interface PlaceOrderResult {
   order?: Order;
 }
 
-/** Each user gets their own simulated portfolio in this browser. */
-const storageKey = (userId: string) => `sprout.trade.v2.${userId}`;
+interface ServerOrder {
+  id: string;
+  symbol: string;
+  side: Side;
+  orderType: OrderType;
+  product: Product;
+  qty: number;
+  limitPricePaise: number | null;
+  status: OrderStatus;
+  fillPricePaise: number | null;
+  blockedPaise: number;
+  statusReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
-const defaultState = (): TradeState => ({
-  tradeCashDeltaPaise: 0,
-  realizedPaise: 0,
-  holdings: {},
-  orders: [],
-  watchlist: ['RELIANCE', 'TCS', 'INFY', 'ZOMATO'],
+interface HoldingsResponse {
+  holdings: { symbol: string; qty: number; reservedQty: number; avgPricePaise: number }[];
+  realizedPnlPaise: number;
+}
+
+const toOrder = (o: ServerOrder): Order => ({
+  id: o.id,
+  symbol: o.symbol,
+  side: o.side,
+  qty: o.qty,
+  orderType: o.orderType,
+  product: o.product,
+  limitPrice: o.limitPricePaise === null ? undefined : o.limitPricePaise / 100,
+  status: o.status,
+  fillPrice: o.fillPricePaise === null ? undefined : o.fillPricePaise / 100,
+  blockedPaise: o.blockedPaise,
+  reason: o.statusReason ?? undefined,
+  createdAt: Date.parse(o.createdAt),
+  updatedAt: Date.parse(o.updatedAt),
 });
 
-function loadState(userId: string): TradeState {
+// ───────────────────────── Watchlist (browser only) ─────────────────────────
+
+const watchlistKey = (userId: string) => `sprout.watchlist.${userId}`;
+const DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'INFY', 'ZOMATO'];
+
+function loadWatchlist(userId: string): string[] {
   try {
-    const raw = localStorage.getItem(storageKey(userId));
-    if (raw) return { ...defaultState(), ...JSON.parse(raw) };
+    const saved = localStorage.getItem(watchlistKey(userId));
+    if (saved) return JSON.parse(saved);
+    // Carry over the watchlist from the old browser-only trading state (before Phase 3).
+    const legacy = localStorage.getItem(`sprout.trade.v2.${userId}`);
+    if (legacy) return JSON.parse(legacy).watchlist ?? DEFAULT_WATCHLIST;
   } catch {
-    // storage unavailable — start fresh
+    // storage unavailable
   }
-  return defaultState();
+  return DEFAULT_WATCHLIST;
 }
 
-const newOrderId = () =>
-  `ORD${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-
-const blockedPaiseOf = (s: TradeState) =>
-  s.orders.reduce((sum, o) => (o.status === 'OPEN' ? sum + o.blockedPaise : sum), 0);
-
-const isMarketable = (o: Pick<Order, 'side' | 'orderType' | 'limitPrice'>, ltp: number) => {
-  if (o.orderType === 'MARKET') return true;
-  return o.side === 'BUY' ? ltp <= o.limitPrice! : ltp >= o.limitPrice!;
-};
-
-const upsertOrder = (orders: Order[], order: Order) =>
-  orders.some((o) => o.id === order.id) ? orders.map((o) => (o.id === order.id ? order : o)) : [order, ...orders];
-
-function applyFill(s: TradeState, order: Order, fillPrice: number): TradeState {
-  const now = Date.now();
-  const value = toPaise(fillPrice) * order.qty;
-  const holdings = { ...s.holdings };
-  const held = holdings[order.symbol];
-  let { tradeCashDeltaPaise, realizedPaise } = s;
-
-  if (order.side === 'BUY') {
-    tradeCashDeltaPaise -= value;
-    const qty = (held?.qty ?? 0) + order.qty;
-    const avgPrice = held ? (held.avgPrice * held.qty + fillPrice * order.qty) / qty : fillPrice;
-    holdings[order.symbol] = { symbol: order.symbol, qty, avgPrice };
-  } else {
-    if (!held || held.qty < order.qty) {
-      const rejected: Order = { ...order, status: 'REJECTED', reason: 'Insufficient holdings', blockedPaise: 0, updatedAt: now };
-      return { ...s, orders: upsertOrder(s.orders, rejected) };
-    }
-    tradeCashDeltaPaise += value;
-    realizedPaise += Math.round((fillPrice - held.avgPrice) * 100 * order.qty);
-    const qty = held.qty - order.qty;
-    if (qty > 0) holdings[order.symbol] = { ...held, qty };
-    else delete holdings[order.symbol];
-  }
-
-  const filled: Order = { ...order, status: 'EXECUTED', fillPrice, blockedPaise: 0, updatedAt: now };
-  return { ...s, tradeCashDeltaPaise, realizedPaise, holdings, orders: upsertOrder(s.orders, filled) };
-}
+// ───────────────────────────── Context ─────────────────────────────
 
 interface TradeContextValue {
   state: TradeState;
-  /** Wallet balance + simulated trade cash − money blocked by open orders. */
+  /** True once orders and holdings have loaded the first time. */
+  loaded: boolean;
+  /** Free cash in the wallet (the server already excludes money blocked by open orders). */
   availablePaise: number;
   blockedPaise: number;
-  placeOrder: (input: PlaceOrderInput) => PlaceOrderResult;
-  cancelOrder: (id: string) => void;
+  placeOrder: (input: PlaceOrderInput) => Promise<PlaceOrderResult>;
+  cancelOrder: (id: string) => Promise<{ ok: boolean; message: string }>;
   toggleWatchlist: (symbol: string) => void;
-  /** Clears simulated holdings and orders. The real wallet is not touched. */
-  resetAccount: () => void;
+  refresh: () => Promise<void>;
 }
 
 const TradeContext = createContext<TradeContextValue | null>(null);
 
 export function TradeProvider({ userId, children }: { userId: string; children: ReactNode }) {
-  const { quotes, status } = useMarket();
-  const { balancePaise: walletPaise } = useWallet();
-  const marketOpenRef = useRef(true);
-  marketOpenRef.current = status?.open ?? true;
-  const [state, setState] = useState<TradeState>(() => loadState(userId));
-  const stateRef = useRef(state);
-  const quotesRef = useRef(quotes);
-  quotesRef.current = quotes;
-  const walletRef = useRef(walletPaise ?? 0);
-  walletRef.current = walletPaise ?? 0;
+  const { balancePaise, blockedPaise, refresh: refreshWallet } = useWallet();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [holdings, setHoldings] = useState<Record<string, Holding>>({});
+  const [realizedPaise, setRealizedPaise] = useState(0);
+  const [watchlist, setWatchlist] = useState<string[]>(() => loadWatchlist(userId));
+  const [loaded, setLoaded] = useState(false);
 
-  const commit = useCallback((next: TradeState) => {
-    stateRef.current = next;
-    setState(next);
+  const loadOrders = useCallback(async () => {
+    const list = await api.get<ServerOrder[]>('/orders?limit=200');
+    setOrders(list.map(toOrder));
   }, []);
+
+  const loadHoldings = useCallback(async () => {
+    const res = await api.get<HoldingsResponse>('/portfolio/holdings');
+    setHoldings(
+      Object.fromEntries(
+        res.holdings.map((h) => [h.symbol, { symbol: h.symbol, qty: h.qty, reservedQty: h.reservedQty, avgPrice: h.avgPricePaise / 100 }]),
+      ),
+    );
+    setRealizedPaise(res.realizedPnlPaise);
+  }, []);
+
+  /** After anything changes money or shares: reload holdings and wallet. */
+  const syncAfterChange = useCallback(() => {
+    loadHoldings().catch(() => undefined);
+    refreshWallet().catch(() => undefined);
+  }, [loadHoldings, refreshWallet]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([loadOrders(), loadHoldings(), refreshWallet()]);
+  }, [loadOrders, loadHoldings, refreshWallet]);
+
+  useEffect(() => {
+    refresh()
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+  }, [refresh]);
+
+  const upsertOrder = useCallback((order: Order) => {
+    setOrders((prev) => (prev.some((o) => o.id === order.id) ? prev.map((o) => (o.id === order.id ? order : o)) : [order, ...prev]));
+  }, []);
+
+  // Live updates: limit orders can fill or expire while you're on any page (or away).
+  useEffect(() => {
+    const socket = io('/account', {
+      transports: ['websocket'],
+      // A function, so every (re)connect sends the current token — it rotates every 15 minutes.
+      auth: (cb) => cb({ token: getAccessToken() ?? '' }),
+    });
+    socket.on('order', (o: ServerOrder) => {
+      upsertOrder(toOrder(o));
+      syncAfterChange();
+    });
+    // The server drops sockets with an expired token; renew the session, then reconnect.
+    socket.on('auth_error', async () => {
+      if (await refreshSession()) socket.connect();
+    });
+    return () => {
+      socket.close();
+    };
+  }, [upsertOrder, syncAfterChange]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey(userId), JSON.stringify(state));
+      localStorage.setItem(watchlistKey(userId), JSON.stringify(watchlist));
     } catch {
-      // storage unavailable — state lives in memory only
+      // storage unavailable
     }
-  }, [state, userId]);
-
-  // Matching engine: on every tick, fill open limit orders whose price was reached.
-  useEffect(() => {
-    if (!marketOpenRef.current) return; // nothing executes while the market is closed
-    let s = stateRef.current;
-    let changed = false;
-    for (const o of s.orders) {
-      if (o.status !== 'OPEN') continue;
-      const q = quotes[o.symbol];
-      if (q && isMarketable(o, q.ltp)) {
-        s = applyFill(s, o, q.ltp);
-        changed = true;
-      }
-    }
-    if (changed) commit(s);
-  }, [quotes, commit]);
+  }, [watchlist, userId]);
 
   const placeOrder = useCallback(
-    (input: PlaceOrderInput): PlaceOrderResult => {
-      const s = stateRef.current;
-      const q = quotesRef.current[input.symbol];
-      if (!q) return { ok: false, message: 'Unknown instrument' };
+    async (input: PlaceOrderInput): Promise<PlaceOrderResult> => {
+      // Quick checks for instant feedback; the server validates everything again.
       if (!Number.isInteger(input.qty) || input.qty <= 0) {
         return { ok: false, message: 'Quantity must be a whole number greater than 0' };
       }
       if (input.orderType === 'LIMIT' && !(input.limitPrice && input.limitPrice > 0)) {
         return { ok: false, message: 'Enter a valid limit price' };
       }
-
-      const now = Date.now();
-      const order: Order = {
-        ...input,
-        id: newOrderId(),
-        limitPrice: input.orderType === 'LIMIT' ? roundToTick(input.limitPrice!) : undefined,
-        status: 'OPEN',
-        blockedPaise: 0,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const reject = (reason: string): PlaceOrderResult => {
-        const rejected: Order = { ...order, status: 'REJECTED', reason };
-        commit({ ...s, orders: [rejected, ...s.orders] });
-        return { ok: false, message: `Order rejected: ${reason}`, order: rejected };
-      };
-
-      if (!marketOpenRef.current) return reject('Market is closed');
-
-      const refPrice = order.orderType === 'MARKET' ? q.ltp : order.limitPrice!;
-      let blocked = 0;
-      if (order.side === 'BUY') {
-        blocked = toPaise(refPrice) * order.qty;
-        if (blocked > walletRef.current + s.tradeCashDeltaPaise - blockedPaiseOf(s)) return reject('Insufficient funds');
-      } else {
-        const held = s.holdings[order.symbol]?.qty ?? 0;
-        const reserved = s.orders
-          .filter((o) => o.status === 'OPEN' && o.side === 'SELL' && o.symbol === order.symbol)
-          .reduce((sum, o) => sum + o.qty, 0);
-        const sellable = held - reserved;
-        if (order.qty > sellable) {
-          return reject(held === 0 ? "You don't hold this stock" : `You can sell at most ${sellable} shares`);
+      try {
+        const order = toOrder(
+          await api.post<ServerOrder>(
+            '/orders',
+            {
+              symbol: input.symbol,
+              side: input.side,
+              orderType: input.orderType,
+              product: input.product,
+              qty: input.qty,
+              ...(input.orderType === 'LIMIT' ? { limitPricePaise: Math.round(input.limitPrice! * 100) } : {}),
+            },
+            { headers: { 'Idempotency-Key': crypto.randomUUID() } },
+          ),
+        );
+        upsertOrder(order);
+        syncAfterChange();
+        if (order.status === 'REJECTED') return { ok: false, order, message: `Order rejected: ${order.reason}` };
+        if (order.status === 'EXECUTED') {
+          const verb = order.side === 'BUY' ? 'Bought' : 'Sold';
+          return { ok: true, order, message: `${verb} ${order.qty} × ${order.symbol} @ ${formatINR(order.fillPrice!)}` };
         }
+        const direction = order.side === 'BUY' ? 'falls to' : 'rises to';
+        return { ok: true, order, message: `Limit order placed. Executes when price ${direction} ${formatINR(order.limitPrice!)}` };
+      } catch (err) {
+        return { ok: false, message: errorMessage(err) };
       }
-
-      if (isMarketable(order, q.ltp)) {
-        const next = applyFill(s, order, q.ltp);
-        commit(next);
-        const filled = next.orders[0];
-        const verb = order.side === 'BUY' ? 'Bought' : 'Sold';
-        return { ok: true, order: filled, message: `${verb} ${order.qty} × ${order.symbol} @ ${formatINR(q.ltp)}` };
-      }
-
-      const open: Order = { ...order, blockedPaise: order.side === 'BUY' ? blocked : 0 };
-      commit({ ...s, orders: [open, ...s.orders] });
-      return {
-        ok: true,
-        order: open,
-        message: `Limit order placed. Executes when price ${order.side === 'BUY' ? 'falls to' : 'rises to'} ${formatINR(order.limitPrice!)}`,
-      };
     },
-    [commit],
+    [upsertOrder, syncAfterChange],
   );
 
   const cancelOrder = useCallback(
-    (id: string) => {
-      const s = stateRef.current;
-      const o = s.orders.find((x) => x.id === id);
-      if (!o || o.status !== 'OPEN') return;
-      commit({ ...s, orders: upsertOrder(s.orders, { ...o, status: 'CANCELLED', blockedPaise: 0, updatedAt: Date.now() }) });
+    async (id: string) => {
+      try {
+        upsertOrder(toOrder(await api.delete<ServerOrder>(`/orders/${id}`)));
+        syncAfterChange();
+        return { ok: true, message: 'Order cancelled' };
+      } catch (err) {
+        loadOrders().catch(() => undefined); // it may have executed meanwhile
+        return { ok: false, message: errorMessage(err) };
+      }
     },
-    [commit],
+    [upsertOrder, syncAfterChange, loadOrders],
   );
 
-  const value = useMemo<TradeContextValue>(() => {
-    const blockedPaise = blockedPaiseOf(state);
-    return {
-      state,
+  const toggleWatchlist = useCallback((symbol: string) => {
+    setWatchlist((list) => (list.includes(symbol) ? list.filter((s) => s !== symbol) : [...list, symbol]));
+  }, []);
+
+  const value = useMemo<TradeContextValue>(
+    () => ({
+      state: { orders, holdings, realizedPaise, watchlist },
+      loaded,
+      availablePaise: balancePaise ?? 0,
       blockedPaise,
-      availablePaise: (walletPaise ?? 0) + state.tradeCashDeltaPaise - blockedPaise,
       placeOrder,
       cancelOrder,
-      toggleWatchlist: (symbol) => {
-        const s = stateRef.current;
-        const watchlist = s.watchlist.includes(symbol) ? s.watchlist.filter((x) => x !== symbol) : [...s.watchlist, symbol];
-        commit({ ...s, watchlist });
-      },
-      resetAccount: () => {
-        const s = stateRef.current;
-        commit({ ...defaultState(), watchlist: s.watchlist });
-      },
-    };
-  }, [state, walletPaise, placeOrder, cancelOrder, commit]);
+      toggleWatchlist,
+      refresh,
+    }),
+    [orders, holdings, realizedPaise, watchlist, loaded, balancePaise, blockedPaise, placeOrder, cancelOrder, toggleWatchlist, refresh],
+  );
 
   return <TradeContext.Provider value={value}>{children}</TradeContext.Provider>;
 }

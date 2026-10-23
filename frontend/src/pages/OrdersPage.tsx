@@ -11,15 +11,23 @@ const FILTERS: { key: Filter; label: string; match: (o: Order) => boolean }[] = 
   { key: 'ALL', label: 'All', match: () => true },
   { key: 'OPEN', label: 'Open', match: (o) => o.status === 'OPEN' },
   { key: 'EXECUTED', label: 'Executed', match: (o) => o.status === 'EXECUTED' },
-  { key: 'CLOSED', label: 'Cancelled / Rejected', match: (o) => o.status === 'CANCELLED' || o.status === 'REJECTED' },
+  { key: 'CLOSED', label: 'Cancelled / Expired / Rejected', match: (o) => ['CANCELLED', 'EXPIRED', 'REJECTED'].includes(o.status) },
 ];
 
 export function OrdersPage() {
   const { state, cancelOrder } = useTrade();
   const { bySymbol } = useMarket();
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
   const active = FILTERS.find((f) => f.key === filter)!;
   const orders = state.orders.filter(active.match);
+
+  const cancel = async (id: string) => {
+    setCancelling(id);
+    setNotice(await cancelOrder(id));
+    setCancelling(null);
+  };
 
   return (
     <div className="page-single">
@@ -40,6 +48,12 @@ export function OrdersPage() {
           ))}
         </div>
       </div>
+
+      {notice && (
+        <div className={`order-result ${notice.ok ? 'ok' : 'err'}`} role="status" data-testid="orders-notice">
+          {notice.message}
+        </div>
+      )}
 
       {orders.length === 0 ? (
         <div className="card">
@@ -99,8 +113,13 @@ export function OrdersPage() {
                   <td className="hide-sm muted small">{formatTime(o.createdAt)}</td>
                   <td className="num">
                     {o.status === 'OPEN' && (
-                      <button className="btn-text danger" onClick={() => cancelOrder(o.id)} data-testid="cancel-order">
-                        Cancel
+                      <button
+                        className="btn-text danger"
+                        onClick={() => cancel(o.id)}
+                        disabled={cancelling === o.id}
+                        data-testid="cancel-order"
+                      >
+                        {cancelling === o.id ? 'Cancelling…' : 'Cancel'}
                       </button>
                     )}
                   </td>

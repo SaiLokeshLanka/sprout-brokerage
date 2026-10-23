@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { useTrade } from '../store/TradeContext';
 import { formatINR, formatPaise, formatTime, toPaise } from '../utils/format';
 import { useWallet, WalletTxn } from '../wallet/WalletContext';
 
@@ -14,6 +13,10 @@ const TYPE_LABEL: Record<WalletTxn['type'], string> = {
   WELCOME_BONUS: 'Welcome bonus',
   DEPOSIT: 'Money added',
   WITHDRAWAL: 'Withdrawal',
+  TRADE_BUY: 'Shares bought',
+  TRADE_SELL: 'Shares sold',
+  ORDER_BLOCK: 'Blocked for order',
+  ORDER_RELEASE: 'Released from order',
 };
 
 /** Returns the amount in paise, or an error message. Same limits as the server. */
@@ -29,8 +32,7 @@ export function FundsPage() {
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get('tab') === 'withdraw' ? 'withdraw' : 'add';
   const { user } = useAuth();
-  const { balancePaise, version, deposit, withdraw, loadTransactions } = useWallet();
-  const { availablePaise } = useTrade();
+  const { balancePaise, blockedPaise, version, deposit, withdraw, loadTransactions } = useWallet();
 
   const [amount, setAmount] = useState('');
   const [pending, setPending] = useState(false);
@@ -56,8 +58,8 @@ export function FundsPage() {
   }, [version, loadTransactions]);
 
   const kycVerified = user?.kycStatus === 'VERIFIED';
-  // Money spent on (simulated) holdings is still in the wallet ledger but isn't free to withdraw.
-  const withdrawablePaise = Math.max(0, Math.min(balancePaise ?? 0, availablePaise));
+  // The server keeps money blocked by open orders in a separate account, so all free cash is withdrawable.
+  const withdrawablePaise = balancePaise ?? 0;
 
   const switchTab = (next: Tab) => {
     setParams(next === 'withdraw' ? { tab: 'withdraw' } : {}, { replace: true });
@@ -97,13 +99,13 @@ export function FundsPage() {
     <div className="page-grid">
       <div className="page-main">
         <div className="card balance-card" data-testid="wallet-card">
-          <div className="muted small">Wallet balance</div>
+          <div className="muted small">Available cash</div>
           <div className="summary-value" data-testid="wallet-balance">
             {balancePaise === null ? '—' : formatPaise(balancePaise)}
           </div>
           <div className="balance-split small">
             <span>
-              Available to invest <b data-testid="wallet-available">{formatPaise(availablePaise)}</b>
+              Blocked for open orders <b data-testid="wallet-blocked">{formatPaise(blockedPaise)}</b>
             </span>
             <span>
               Withdrawable <b data-testid="wallet-withdrawable">{formatPaise(withdrawablePaise)}</b>
@@ -127,7 +129,9 @@ export function FundsPage() {
                     </div>
                     <div className="grow">
                       <div className="strong">{TYPE_LABEL[t.type]}</div>
-                      <div className="muted small">{formatTime(Date.parse(t.createdAt))}</div>
+                      <div className="muted small" data-testid="txn-description">
+                        {t.description} · {formatTime(Date.parse(t.createdAt))}
+                      </div>
                     </div>
                     <div className="num">
                       <div className={`strong ${incoming ? 'up' : ''}`} data-testid="txn-amount">

@@ -265,6 +265,7 @@ h3 { font-size: 16px; font-weight: 600; }
 .status.executed { color: var(--up); }
 .status.open { color: var(--warn); }
 .status.cancelled { color: var(--muted); }
+.status.expired { color: var(--muted); }
 .status.rejected { color: var(--down); }
 
 /* ---------- Order panel ---------- */

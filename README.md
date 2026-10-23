@@ -84,6 +84,12 @@ Every route requires `Authorization: Bearer <accessToken>` unless marked public.
 | GET    | `/api/wallet/transactions`   | yes    | Ledger history. Query: `limit`, `cursor`     |
 | POST   | `/api/wallet/deposit`        | yes    | `{ amountPaise }`; optional `Idempotency-Key` header |
 | POST   | `/api/wallet/withdraw`       | yes    | `{ amountPaise }`; needs verified KYC        |
+| POST   | `/api/orders`                | yes    | `{ symbol, side, orderType, qty, limitPricePaise?, product? }`; optional `Idempotency-Key`. 201 with status `EXECUTED`, `OPEN` or `REJECTED` |
+| GET    | `/api/orders`                | yes    | Your orders, newest first. Query: `status`, `limit` |
+| GET    | `/api/orders/:id`            | yes    | One of your orders (404 for anyone else's)   |
+| DELETE | `/api/orders/:id`            | yes    | Cancel an `OPEN` order (409 otherwise)       |
+| GET    | `/api/portfolio/holdings`    | yes    | Shares owned, average price, realised P&L    |
+| WS     | `/socket.io` namespace `/account` | token | Private event `order` whenever one of your orders changes |
 | GET    | `/api/market/status`         | public | Is the market open? (`MARKET_MODE=always` or `nse`) |
 | GET    | `/api/market/quotes`         | public | Latest quote for every instrument (paise)    |
 | GET    | `/api/market/quotes/:symbol` | public | One quote incl. ±10% circuit limits          |
@@ -98,8 +104,23 @@ Every route requires `Authorization: Bearer <accessToken>` unless marked public.
 | POST   | `/api/test/market/resume`    | —                                            |
 | POST   | `/api/test/market/price`     | `{ symbol, price }` (rupees) — set an exact price |
 | POST   | `/api/test/market/session`   | `{ state: "open" \| "closed" \| "auto" }`     |
+| POST   | `/api/test/orders/expire`    | — expires every OPEN order (end of day)      |
 
 In the browser (dev mode) the same hooks are available as `window.__market.pause()`, `.setPrice('TCS', 4100)`, etc.
+
+## How orders move money
+
+| Event                   | Ledger journal   | Money / shares                                        |
+| ----------------------- | ---------------- | ----------------------------------------------------- |
+| Market buy executes     | `TRADE_BUY`      | cash → exchange; shares added to the holding          |
+| Limit buy waits         | `ORDER_BLOCK`    | cash → blocked                                        |
+| Limit buy executes      | `TRADE_BUY`      | blocked → exchange, unused part back to cash          |
+| Open buy cancelled/expired | `ORDER_RELEASE` | blocked → cash                                      |
+| Limit sell waits        | —                | shares reserved on the holding                        |
+| Sell executes           | `TRADE_SELL`     | exchange → cash; realised P&L = proceeds − average cost |
+
+Open orders are matched against prices on every tick by the server, and expire when the market closes
+or a new trading day starts.
 
 ## How live prices flow
 
@@ -113,6 +134,9 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - `npm run test:api -w backend` — API smoke tests, needs the API running:
   - `api-smoke.mjs` (52 checks): auth, lockout, token rotation, KYC rules, idempotency, concurrent withdrawals, ledger integrity
   - `market-smoke.mjs` (34 checks): quotes, tick size, circuit limits, candles, WebSocket stream, test hooks
+  - `orders-smoke.mjs` (57 checks): buy/sell/limit/cancel/expiry, rejections, idempotency, races, privacy,
+    account WebSocket, and database invariants (ledger, blocked funds, reserved shares, holdings)
+- `npm run test:e2e` — Playwright UI tests in Microsoft Edge (see `e2e/README.md`)
 
 ## Conventions
 
@@ -127,7 +151,7 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - [x] **Phase 0** — monorepo, Docker infra, backend skeleton, instrument master
 - [x] **Phase 1** — auth (JWT + rotating refresh cookie), profile & KYC, double-entry wallet ledger
 - [x] **Phase 2** — server-side market simulator, Redis pub/sub, WebSocket prices, candles, market sessions
-- [ ] Phase 3 — order management system & execution engine
+- [x] **Phase 3** — server-side order management: orders, holdings, matching engine, blocked funds, expiry
 - [ ] Phase 4 — portfolio & P&L
 - [ ] Phase 6 — pro features (indicators, options chain, advanced orders)
 - [ ] Phase 7 — Playwright framework
