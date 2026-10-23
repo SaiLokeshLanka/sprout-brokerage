@@ -73,6 +73,16 @@ export function refreshSession(): Promise<SessionResponse | null> {
   return refreshInFlight;
 }
 
+const UNREACHABLE = "We can't reach Sprout right now. Please try again in a moment.";
+
+/** Picks a message the user can act on. Never shows raw internals of a server error. */
+function describeError(status: number, serverMessage?: string): string {
+  if (status === 503) return serverMessage ?? UNREACHABLE; // server says a dependency (e.g. database) is down
+  if (status === 502 || status === 504) return UNREACHABLE; // gateway/proxy couldn't reach the API
+  if (status >= 500) return serverMessage ? 'Something went wrong on our side. Please try again.' : UNREACHABLE;
+  return serverMessage ?? 'Request failed';
+}
+
 export async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   const { auth = true, retry = true, headers = {} } = options;
 
@@ -98,15 +108,14 @@ export async function request<T>(method: string, path: string, body?: unknown, o
   }
 
   if (!res.ok) {
-    let message = 'Request failed';
+    let serverMessage: string | undefined;
     try {
       const data = await res.json();
-      message = (Array.isArray(data.message) ? data.message[0] : data.message) ?? message;
+      serverMessage = Array.isArray(data.message) ? data.message[0] : data.message;
     } catch {
-      // non-JSON error body
+      // empty or non-JSON body — e.g. the dev proxy couldn't reach the API at all
     }
-    if (res.status >= 500) message = 'Something went wrong on our side. Please try again.';
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, describeError(res.status, serverMessage));
   }
 
   if (res.status === 204) return undefined as T;
