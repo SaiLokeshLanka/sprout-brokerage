@@ -84,11 +84,35 @@ Every route requires `Authorization: Bearer <accessToken>` unless marked public.
 | GET    | `/api/wallet/transactions`   | yes    | Ledger history. Query: `limit`, `cursor`     |
 | POST   | `/api/wallet/deposit`        | yes    | `{ amountPaise }`; optional `Idempotency-Key` header |
 | POST   | `/api/wallet/withdraw`       | yes    | `{ amountPaise }`; needs verified KYC        |
+| GET    | `/api/market/status`         | public | Is the market open? (`MARKET_MODE=always` or `nse`) |
+| GET    | `/api/market/quotes`         | public | Latest quote for every instrument (paise)    |
+| GET    | `/api/market/quotes/:symbol` | public | One quote incl. ±10% circuit limits          |
+| GET    | `/api/market/candles/:symbol`| public | Chart points. Query: `range=1D\|1W\|1M\|1Y\|5Y` |
+| WS     | `/socket.io`                 | public | Events: `status`, `snapshot` (on connect), `ticks` (every second) |
+
+### Test hooks (only when `ENABLE_TEST_HOOKS=true`, never in production)
+
+| Method | Path                         | Body                                         |
+| ------ | ---------------------------- | -------------------------------------------- |
+| POST   | `/api/test/market/pause`     | — freezes prices                             |
+| POST   | `/api/test/market/resume`    | —                                            |
+| POST   | `/api/test/market/price`     | `{ symbol, price }` (rupees) — set an exact price |
+| POST   | `/api/test/market/session`   | `{ state: "open" \| "closed" \| "auto" }`     |
+
+In the browser (dev mode) the same hooks are available as `window.__market.pause()`, `.setPrice('TCS', 4100)`, etc.
+
+## How live prices flow
+
+```
+MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄── GET /api/market/quotes
+                                      └─ pub/sub market:ticks  ──► WebSocket gateway ──► browsers
+```
 
 ## Testing
 
-- `npm run test:api -w backend` — API smoke test (52 checks: auth, lockout, token rotation, KYC rules,
-  idempotency, concurrent withdrawals, ledger integrity). Needs the API running.
+- `npm run test:api -w backend` — API smoke tests, needs the API running:
+  - `api-smoke.mjs` (52 checks): auth, lockout, token rotation, KYC rules, idempotency, concurrent withdrawals, ledger integrity
+  - `market-smoke.mjs` (34 checks): quotes, tick size, circuit limits, candles, WebSocket stream, test hooks
 
 ## Conventions
 
@@ -102,7 +126,7 @@ Every route requires `Authorization: Bearer <accessToken>` unless marked public.
 - [x] Frontend UI (simulated market in the browser)
 - [x] **Phase 0** — monorepo, Docker infra, backend skeleton, instrument master
 - [x] **Phase 1** — auth (JWT + rotating refresh cookie), profile & KYC, double-entry wallet ledger
-- [ ] Phase 2 — market data service + WebSockets
+- [x] **Phase 2** — server-side market simulator, Redis pub/sub, WebSocket prices, candles, market sessions
 - [ ] Phase 3 — order management system & execution engine
 - [ ] Phase 4 — portfolio & P&L
 - [ ] Phase 6 — pro features (indicators, options chain, advanced orders)

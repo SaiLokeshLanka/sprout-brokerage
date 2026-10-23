@@ -32,7 +32,11 @@ model Instrument {
   lotSize       Int            @default(1)
   tickSizePaise Int            @default(5)
   /// Reference price (previous close) the market simulator starts from.
+  /// The simulator writes each day's closing price back here.
   refPricePaise Int
+  /// Display-only fundamentals (illustrative). Null when unknown.
+  peRatio       Float?
+  marketCapCr   Int?
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt

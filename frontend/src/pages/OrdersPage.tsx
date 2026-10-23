@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState, StockLogo } from '../components/common';
-import { STOCK_MAP } from '../data/instruments';
+import { useMarket } from '../market/MarketContext';
 import { Order, useTrade } from '../store/TradeContext';
 import { formatINR, formatTime } from '../utils/format';
 
@@ -16,6 +16,7 @@ const FILTERS: { key: Filter; label: string; match: (o: Order) => boolean }[] = 
 
 export function OrdersPage() {
   const { state, cancelOrder } = useTrade();
+  const { bySymbol } = useMarket();
   const [filter, setFilter] = useState<Filter>('ALL');
   const active = FILTERS.find((f) => f.key === filter)!;
   const orders = state.orders.filter(active.match);
@@ -74,7 +75,7 @@ export function OrdersPage() {
                       <StockLogo symbol={o.symbol} size={28} />
                       <div>
                         <Link to={`/stocks/${o.symbol}`} className="strong plain">
-                          {STOCK_MAP[o.symbol]?.name ?? o.symbol}
+                          {bySymbol[o.symbol]?.name ?? o.symbol}
                         </Link>
                         <div className="muted small">{o.product === 'DELIVERY' ? 'Delivery' : 'Intraday'}</div>
                       </div>

@@ -140,8 +140,10 @@ interface TradeContextValue {
 const TradeContext = createContext<TradeContextValue | null>(null);
 
 export function TradeProvider({ userId, children }: { userId: string; children: ReactNode }) {
-  const { quotes } = useMarket();
+  const { quotes, status } = useMarket();
   const { balancePaise: walletPaise } = useWallet();
+  const marketOpenRef = useRef(true);
+  marketOpenRef.current = status?.open ?? true;
   const [state, setState] = useState<TradeState>(() => loadState(userId));
   const stateRef = useRef(state);
   const quotesRef = useRef(quotes);
@@ -164,6 +166,7 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
 
   // Matching engine: on every tick, fill open limit orders whose price was reached.
   useEffect(() => {
+    if (!marketOpenRef.current) return; // nothing executes while the market is closed
     let s = stateRef.current;
     let changed = false;
     for (const o of s.orders) {
@@ -204,6 +207,8 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
         commit({ ...s, orders: [rejected, ...s.orders] });
         return { ok: false, message: `Order rejected: ${reason}`, order: rejected };
       };
+
+      if (!marketOpenRef.current) return reject('Market is closed');
 
       const refPrice = order.orderType === 'MARKET' ? q.ltp : order.limitPrice!;
       let blocked = 0;

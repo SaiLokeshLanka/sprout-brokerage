@@ -6,7 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // Forward API calls to the NestJS backend during development.
-    proxy: { '/api': 'http://localhost:3000' },
+    // Forward API calls and the live-price WebSocket to the NestJS backend during development.
+    proxy: {
+      '/api': 'http://localhost:3000',
+      '/socket.io': { target: 'http://localhost:3000', ws: true },
+    },
   },
 });

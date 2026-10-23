@@ -1,17 +1,24 @@
 import { Link, useParams } from 'react-router-dom';
-import { Change, StockLogo } from '../components/common';
+import { Change, MarketStatusPill, StockLogo } from '../components/common';
 import { OrderPanel } from '../components/OrderPanel';
 import { PriceChart } from '../components/PriceChart';
-import { STOCK_MAP } from '../data/instruments';
-import { changeOf, useQuote } from '../market/MarketContext';
+import { changeOf, useInstrument, useQuote } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatChange, formatINR, formatInt, formatTime } from '../utils/format';
 
 export function StockPage() {
-  const { symbol = '' } = useParams();
-  const inst = STOCK_MAP[symbol];
+  const symbol = (useParams().symbol ?? '').toUpperCase();
+  const inst = useInstrument(symbol);
   const q = useQuote(symbol);
   const { state, toggleWatchlist } = useTrade();
+
+  if (inst && !q) {
+    return (
+      <div className="card empty-state muted" data-testid="prices-loading">
+        Loading live price…
+      </div>
+    );
+  }
 
   if (!inst || !q) {
     return (
@@ -30,6 +37,7 @@ export function StockPage() {
   const holding = state.holdings[symbol];
   const recentOrders = state.orders.filter((o) => o.symbol === symbol).slice(0, 5);
   const rangePos = q.high > q.low ? ((q.ltp - q.low) / (q.high - q.low)) * 100 : 50;
+  const tradable = inst.type === 'EQUITY';
 
   return (
     <div className="page-grid">
@@ -37,14 +45,16 @@ export function StockPage() {
         <section className="stock-header">
           <div className="stock-header-top">
             <StockLogo symbol={symbol} size={52} />
-            <button
-              className={`watch-btn ${watched ? 'on' : ''}`}
-              onClick={() => toggleWatchlist(symbol)}
-              aria-pressed={watched}
-              data-testid="watchlist-toggle"
-            >
-              {watched ? '★ Watchlisted' : '☆ Watchlist'}
-            </button>
+            {tradable && (
+              <button
+                className={`watch-btn ${watched ? 'on' : ''}`}
+                onClick={() => toggleWatchlist(symbol)}
+                aria-pressed={watched}
+                data-testid="watchlist-toggle"
+              >
+                {watched ? '★ Watchlisted' : '☆ Watchlist'}
+              </button>
+            )}
           </div>
           <h1 className="stock-name" data-testid="stock-name">
             {inst.name}
@@ -52,12 +62,15 @@ export function StockPage() {
           <div className="stock-price" data-testid="stock-ltp">
             {formatINR(q.ltp)}
           </div>
-          <div className="small">
-            <Change abs={abs} pct={pct} testId="stock-change" /> <span className="muted">1D</span>
+          <div className="small stock-sub">
+            <span>
+              <Change abs={abs} pct={pct} testId="stock-change" /> <span className="muted">1D</span>
+            </span>
+            <MarketStatusPill />
           </div>
         </section>
 
-        <PriceChart symbol={symbol} ltp={q.ltp} open={q.open} />
+        <PriceChart symbol={symbol} ltp={q.ltp} />
 
         {holding && (
           <section className="card position-card" data-testid="your-position">
@@ -100,19 +113,27 @@ export function StockPage() {
             <Stat label="Open" value={formatINR(q.open)} />
             <Stat label="Prev. close" value={formatINR(q.prevClose)} />
             <Stat label="Volume" value={formatInt(q.volume)} />
-            <Stat label="Exchange" value="NSE" />
+            <Stat label="Exchange" value={inst.exchange} />
+            {q.lowerCircuit !== null && q.upperCircuit !== null && (
+              <>
+                <Stat label="Lower circuit" value={formatINR(q.lowerCircuit)} testId="lower-circuit" />
+                <Stat label="Upper circuit" value={formatINR(q.upperCircuit)} testId="upper-circuit" />
+              </>
+            )}
           </div>
         </section>
 
-        <section>
-          <h2 className="section-title">Fundamentals</h2>
-          <div className="stats-grid" data-testid="fundamentals">
-            <Stat label="Market cap" value={inst.marketCap} />
-            <Stat label="P/E ratio" value={inst.pe.toFixed(2)} />
-            <Stat label="Sector" value={inst.sector} />
-            <Stat label="Symbol" value={inst.symbol} />
-          </div>
-        </section>
+        {tradable && (
+          <section>
+            <h2 className="section-title">Fundamentals</h2>
+            <div className="stats-grid" data-testid="fundamentals">
+              <Stat label="Market cap" value={inst.marketCapCr === null ? '—' : `₹${formatInt(inst.marketCapCr)} Cr`} />
+              <Stat label="P/E ratio" value={inst.peRatio === null ? '—' : inst.peRatio.toFixed(2)} />
+              <Stat label="Sector" value={inst.sector ?? '—'} testId="sector" />
+              <Stat label="Lot size" value={formatInt(inst.lotSize)} />
+            </div>
+          </section>
+        )}
 
         {recentOrders.length > 0 && (
           <section>
@@ -134,17 +155,26 @@ export function StockPage() {
       </div>
 
       <aside className="page-aside sticky">
-        <OrderPanel symbol={symbol} ltp={q.ltp} />
+        {tradable ? (
+          <OrderPanel symbol={symbol} ltp={q.ltp} />
+        ) : (
+          <div className="card note" data-testid="index-note">
+            <div className="strong">{inst.name} is an index</div>
+            <p className="muted small">Indices track a basket of stocks and can't be bought directly.</p>
+          </div>
+        )}
       </aside>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
     <div>
       <div className="muted small">{label}</div>
-      <div className="strong">{value}</div>
+      <div className="strong" data-testid={testId}>
+        {value}
+      </div>
     </div>
   );
 }

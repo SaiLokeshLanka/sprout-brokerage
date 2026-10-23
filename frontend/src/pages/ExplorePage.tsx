@@ -1,34 +1,46 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Change, StockCard, StockLogo } from '../components/common';
+import { Change, MarketStatusPill, StockCard, StockLogo } from '../components/common';
 import { InvestmentSummary } from '../components/InvestmentSummary';
-import { INDICES, MOST_TRADED, STOCKS } from '../data/instruments';
 import { changeOf, useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatINR, formatNum } from '../utils/format';
 
+const MOST_TRADED = ['RELIANCE', 'ZOMATO', 'TATAMOTORS', 'HDFCBANK'];
+
 export function ExplorePage() {
-  const { quotes } = useMarket();
+  const { quotes, stocks, indices } = useMarket();
   const { state, toggleWatchlist } = useTrade();
   const navigate = useNavigate();
   const [movers, setMovers] = useState<'gainers' | 'losers'>('gainers');
 
-  const ranked = STOCKS.map((s) => ({ symbol: s.symbol, ...changeOf(quotes[s.symbol]) })).sort((a, b) => b.pct - a.pct);
+  if (stocks.length === 0) {
+    return (
+      <div className="card empty-state muted" data-testid="prices-loading">
+        Loading live prices…
+      </div>
+    );
+  }
+
+  const ranked = stocks.map((s) => ({ symbol: s.symbol, ...changeOf(quotes[s.symbol]) })).sort((a, b) => b.pct - a.pct);
   const moverList = (movers === 'gainers' ? ranked : [...ranked].reverse()).slice(0, 4);
 
   return (
     <div className="page-grid">
       <div className="page-main">
+        <div className="market-bar">
+          <MarketStatusPill />
+        </div>
         <section className="index-strip" data-testid="index-strip">
-          {INDICES.map((idx) => {
+          {indices.map((idx) => {
             const q = quotes[idx.symbol];
             const { abs, pct } = changeOf(q);
             return (
-              <div key={idx.symbol} className="card index-card" data-testid={`index-${idx.symbol}`}>
+              <Link key={idx.symbol} to={`/stocks/${idx.symbol}`} className="card index-card plain" data-testid={`index-${idx.symbol}`}>
                 <div className="muted small strong">{idx.name}</div>
                 <div className="index-value">{formatNum(q.ltp)}</div>
                 <Change abs={abs} pct={pct} />
-              </div>
+              </Link>
             );
           })}
         </section>
@@ -80,7 +92,7 @@ export function ExplorePage() {
                 </tr>
               </thead>
               <tbody>
-                {STOCKS.map((s) => {
+                {stocks.map((s) => {
                   const q = quotes[s.symbol];
                   const { abs, pct } = changeOf(q);
                   const watched = state.watchlist.includes(s.symbol);
@@ -134,7 +146,7 @@ export function ExplorePage() {
         <div className="card note">
           <div className="strong">Paper trading</div>
           <p className="muted small">
-            Prices are simulated and refresh every 1.5s. Orders use virtual money only.
+            Prices come from Sprout's market simulator and stream live every second. Orders use virtual money only.
           </p>
         </div>
       </aside>

@@ -1,13 +1,12 @@
 import { Link } from 'react-router-dom';
 import { Change, EmptyState, StockLogo } from '../components/common';
-import { STOCK_MAP } from '../data/instruments';
 import { changeOf, useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatINR } from '../utils/format';
 
 export function WatchlistPage() {
   const { state, toggleWatchlist } = useTrade();
-  const { quotes } = useMarket();
+  const { quotes, bySymbol } = useMarket();
 
   return (
     <div className="page-single narrow">
@@ -33,7 +32,7 @@ export function WatchlistPage() {
                 <Link to={`/stocks/${symbol}`} className="watch-link plain">
                   <StockLogo symbol={symbol} size={36} />
                   <div className="grow">
-                    <div className="strong">{STOCK_MAP[symbol]?.name}</div>
+                    <div className="strong">{bySymbol[symbol]?.name ?? symbol}</div>
                     <div className="muted small">{symbol}</div>
                   </div>
                   <div className="num">

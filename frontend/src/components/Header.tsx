@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { STOCKS } from '../data/instruments';
+import { useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatPaise } from '../utils/format';
 import { BrandLogo, StockLogo } from './common';
@@ -16,6 +16,7 @@ const NAV = [
 export function Header() {
   const { user, logout } = useAuth();
   const { availablePaise } = useTrade();
+  const { stocks } = useMarket();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -26,8 +27,8 @@ export function Header() {
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return STOCKS.filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)).slice(0, 6);
-  }, [query]);
+    return stocks.filter((s) => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)).slice(0, 6);
+  }, [query, stocks]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {

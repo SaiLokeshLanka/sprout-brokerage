@@ -1,11 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { STOCK_MAP } from '../data/instruments';
+import { useMarket } from '../market/MarketContext';
 import { OrderType, Product, Side, useTrade } from '../store/TradeContext';
 import { formatINR, formatPaise, toPaise } from '../utils/format';
 
 export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
   const { placeOrder, availablePaise, state } = useTrade();
+  const { bySymbol, status } = useMarket();
+  // Pausing (a test hook) only freezes prices; a closed session blocks trading.
+  const marketClosed = status !== null && !status.open;
   const [side, setSide] = useState<Side>('BUY');
   const [product, setProduct] = useState<Product>('DELIVERY');
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
@@ -46,7 +49,7 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
   return (
     <form className={`card order-panel ${side === 'SELL' ? 'sell' : 'buy'}`} onSubmit={submit} data-testid="order-panel">
       <div className="order-head">
-        <div className="strong">{STOCK_MAP[symbol]?.name}</div>
+        <div className="strong">{bySymbol[symbol]?.name}</div>
         <div className="muted small">
           NSE {formatINR(ltp)}
         </div>
@@ -165,10 +168,20 @@ export function OrderPanel({ symbol, ltp }: { symbol: string; ltp: number }) {
         </div>
         {insufficient && (
           <div className="warn small" data-testid="insufficient-warning">
-            Insufficient balance. <Link to="/investments">Add money</Link>
+            Insufficient balance. <Link to="/funds">Add money</Link>
           </div>
         )}
-        <button type="submit" className={`btn-primary ${side === 'SELL' ? 'sell' : ''}`} data-testid="place-order">
+        {marketClosed && (
+          <div className="warn small" data-testid="market-closed-warning">
+            Market is closed — {status?.reason}
+          </div>
+        )}
+        <button
+          type="submit"
+          className={`btn-primary ${side === 'SELL' ? 'sell' : ''}`}
+          disabled={marketClosed}
+          data-testid="place-order"
+        >
           {side === 'BUY' ? 'Buy' : 'Sell'}
         </button>
       </div>

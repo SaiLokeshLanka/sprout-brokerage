@@ -1,4 +1,4 @@
-/** FNV-1a string hash — gives each symbol a stable seed. */
+/** FNV-1a string hash — gives each symbol/day a stable seed. */
 export function hashString(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -8,7 +8,7 @@ export function hashString(s: string): number {
   return h >>> 0;
 }
 
-/** Small seeded PRNG so generated history is the same on every reload. */
+/** Small seeded PRNG, so generated history is identical on every request and restart. */
 export function mulberry32(seed: number): () => number {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;

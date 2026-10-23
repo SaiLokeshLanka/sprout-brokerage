@@ -1,7 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { EmptyState, StockLogo } from '../components/common';
 import { InvestmentSummary } from '../components/InvestmentSummary';
-import { STOCK_MAP } from '../data/instruments';
 import { useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatChange, formatINR, formatPaise } from '../utils/format';
@@ -11,7 +10,7 @@ import { useWallet } from '../wallet/WalletContext';
 export function InvestmentsPage() {
   const { state, availablePaise, blockedPaise, resetAccount } = useTrade();
   const { balancePaise } = useWallet();
-  const { quotes } = useMarket();
+  const { quotes, bySymbol } = useMarket();
   const navigate = useNavigate();
   const p = computePortfolio(state.holdings, quotes);
 
@@ -58,7 +57,7 @@ export function InvestmentsPage() {
                         <div className="company-cell">
                           <StockLogo symbol={r.holding.symbol} size={32} />
                           <div>
-                            <div className="strong">{STOCK_MAP[r.holding.symbol]?.name}</div>
+                            <div className="strong">{bySymbol[r.holding.symbol]?.name ?? r.holding.symbol}</div>
                             <div className="muted small" data-testid="holding-qty">
                               {r.holding.qty} shares
                             </div>

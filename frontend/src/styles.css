@@ -364,6 +364,27 @@ h3 { font-size: 16px; font-weight: 600; }
 .field input[readonly] { background: var(--bg-soft); color: var(--muted); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+/* ---------- Market data (Phase 2) ---------- */
+.market-bar { display: flex; justify-content: flex-end; margin-bottom: -18px; }
+.market-pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+}
+.market-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.market-pill.open { color: var(--up); }
+.market-pill.open .dot { background: var(--up); box-shadow: 0 0 0 3px var(--primary-soft); animation: pulse 1.6s ease-in-out infinite; }
+.market-pill.closed { color: var(--muted); }
+.stock-sub { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.connection-banner {
+  position: sticky; top: 68px; z-index: 40; text-align: center; padding: 6px 16px; font-size: 13px; font-weight: 500;
+  background: rgba(194, 124, 14, 0.15); color: var(--warn); border-bottom: 1px solid var(--border);
+}
+.chart-wrap { position: relative; }
+.chart-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+.index-card { color: inherit; transition: box-shadow 0.15s; }
+.index-card:hover { box-shadow: var(--shadow-lg); }
+.btn-primary:disabled.sell { opacity: 0.5; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
   .page-grid { grid-template-columns: minmax(0, 1fr); }

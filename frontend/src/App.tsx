@@ -1,8 +1,8 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
-import { FullPageLoader } from './components/common';
+import { ConnectionBanner, FullPageLoader } from './components/common';
 import { Header } from './components/Header';
-import { MarketProvider } from './market/MarketContext';
+import { MarketProvider, useMarket } from './market/MarketContext';
 import { AccountPage } from './pages/AccountPage';
 import { ExplorePage } from './pages/ExplorePage';
 import { FundsPage } from './pages/FundsPage';
@@ -20,13 +20,29 @@ import { WalletProvider } from './wallet/WalletContext';
  */
 function AuthenticatedShell() {
   const { status, user } = useAuth();
+  const market = useMarket();
   const location = useLocation();
   if (status === 'loading') return <FullPageLoader />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (market.loadState === 'loading') return <FullPageLoader />;
+  if (market.loadState === 'error') {
+    return (
+      <div className="full-loader" data-testid="market-load-error">
+        <div className="empty-state">
+          <h3>Can't load market data</h3>
+          <p>We couldn't reach Sprout's servers. Check that the API is running, then try again.</p>
+          <button className="btn-primary inline" onClick={market.retry}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <WalletProvider key={user.id}>
       <TradeProvider key={user.id} userId={user.id}>
         <Header />
+        <ConnectionBanner />
         <main className="container">
           <Outlet />
         </main>

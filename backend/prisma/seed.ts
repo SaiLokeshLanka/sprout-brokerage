@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { openUserCashAccount } from '../src/wallet/ledger';
+import { FUNDAMENTALS } from './seed-data/fundamentals';
 import { EQUITIES, INDICES } from './seed-data/instruments';
 
 const prisma = new PrismaClient();
@@ -27,6 +28,8 @@ async function seedInstruments() {
         sector: i.sector,
         type: i.type ?? 'EQUITY',
         refPricePaise: Math.round(i.price * 100),
+        peRatio: FUNDAMENTALS[i.symbol]?.pe ?? null,
+        marketCapCr: FUNDAMENTALS[i.symbol]?.marketCapCr ?? null,
       } as const;
       return prisma.instrument.upsert({
         where: { exchange_symbol: { exchange, symbol: i.symbol } },
