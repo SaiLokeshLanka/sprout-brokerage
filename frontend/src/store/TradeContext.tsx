@@ -41,12 +41,18 @@ export interface Holding {
   /** Shares promised to open sell orders. */
   reservedQty: number;
   avgPrice: number;
+  /**
+   * Rupees. What the holding was "worth" at the start of today: shares held from before
+   * at yesterday's close, shares bought today at their buy price. Day's P&L = qty × ltp − dayBasis.
+   */
+  dayBasis: number;
 }
 
 export interface TradeState {
   orders: Order[];
   holdings: Record<string, Holding>;
   realizedPaise: number;
+  realizedTodayPaise: number;
   watchlist: string[];
 }
 
@@ -83,8 +89,9 @@ interface ServerOrder {
 }
 
 interface HoldingsResponse {
-  holdings: { symbol: string; qty: number; reservedQty: number; avgPricePaise: number }[];
+  holdings: { symbol: string; qty: number; reservedQty: number; avgPricePaise: number; dayBasisPaise: number }[];
   realizedPnlPaise: number;
+  realizedTodayPaise: number;
 }
 
 const toOrder = (o: ServerOrder): Order => ({
@@ -143,6 +150,7 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
   const [orders, setOrders] = useState<Order[]>([]);
   const [holdings, setHoldings] = useState<Record<string, Holding>>({});
   const [realizedPaise, setRealizedPaise] = useState(0);
+  const [realizedTodayPaise, setRealizedTodayPaise] = useState(0);
   const [watchlist, setWatchlist] = useState<string[]>(() => loadWatchlist(userId));
   const [loaded, setLoaded] = useState(false);
 
@@ -155,10 +163,14 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
     const res = await api.get<HoldingsResponse>('/portfolio/holdings');
     setHoldings(
       Object.fromEntries(
-        res.holdings.map((h) => [h.symbol, { symbol: h.symbol, qty: h.qty, reservedQty: h.reservedQty, avgPrice: h.avgPricePaise / 100 }]),
+        res.holdings.map((h) => [
+          h.symbol,
+          { symbol: h.symbol, qty: h.qty, reservedQty: h.reservedQty, avgPrice: h.avgPricePaise / 100, dayBasis: h.dayBasisPaise / 100 },
+        ]),
       ),
     );
     setRealizedPaise(res.realizedPnlPaise);
+    setRealizedTodayPaise(res.realizedTodayPaise);
   }, []);
 
   /** After anything changes money or shares: reload holdings and wallet. */
@@ -269,7 +281,7 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
 
   const value = useMemo<TradeContextValue>(
     () => ({
-      state: { orders, holdings, realizedPaise, watchlist },
+      state: { orders, holdings, realizedPaise, realizedTodayPaise, watchlist },
       loaded,
       availablePaise: balancePaise ?? 0,
       blockedPaise,
@@ -278,7 +290,7 @@ export function TradeProvider({ userId, children }: { userId: string; children: 
       toggleWatchlist,
       refresh,
     }),
-    [orders, holdings, realizedPaise, watchlist, loaded, balancePaise, blockedPaise, placeOrder, cancelOrder, toggleWatchlist, refresh],
+    [orders, holdings, realizedPaise, realizedTodayPaise, watchlist, loaded, balancePaise, blockedPaise, placeOrder, cancelOrder, toggleWatchlist, refresh],
   );
 
   return <TradeContext.Provider value={value}>{children}</TradeContext.Provider>;

@@ -386,6 +386,37 @@ h3 { font-size: 16px; font-weight: 600; }
 .index-card:hover { box-shadow: var(--shadow-lg); }
 .btn-primary:disabled.sell { opacity: 0.5; }
 
+/* ---------- Portfolio & reports (Phase 4) ---------- */
+.reports-link { display: block; margin-top: 10px; }
+.allocation { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.alloc-row { display: flex; flex-direction: column; gap: 4px; }
+.alloc-label { display: flex; justify-content: space-between; font-size: 14px; }
+.alloc-track { height: 8px; border-radius: 4px; background: var(--bg-soft); overflow: hidden; }
+.alloc-bar { height: 100%; border-radius: 4px; background: var(--primary); transition: width 0.4s; }
+.report-filters { padding: 16px; display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.report-filters .field input { height: 40px; }
+.download-btn { width: auto; padding: 0 18px; height: 40px; line-height: 38px; margin-left: auto; }
+.download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.report-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.report-stat { padding: 14px 16px; }
+.report-stat-value { font-size: 20px; font-weight: 700; color: var(--text-strong); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.contract-notes { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.contract-note { padding: 28px; display: flex; flex-direction: column; gap: 22px; }
+.cn-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid var(--text-strong); padding-bottom: 14px; }
+.cn-title { text-align: right; }
+.cn-meta { border-bottom: 1px solid var(--border); padding-bottom: 18px; }
+.cn-table th, .cn-table td { padding: 8px 10px; }
+.cn-totals { margin-left: auto; width: min(100%, 360px); display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.cn-totals div { display: flex; justify-content: space-between; gap: 16px; }
+.cn-totals div:last-child { border-top: 1px solid var(--border); padding-top: 8px; font-size: 15px; }
+
+@media print {
+  .header, .connection-banner, .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  .container { padding: 0; max-width: none; }
+  .contract-note { border: none; box-shadow: none; padding: 0; }
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
   .page-grid { grid-template-columns: minmax(0, 1fr); }
@@ -411,6 +442,9 @@ h3 { font-size: 16px; font-weight: 600; }
   .login-hero h1 { font-size: 28px; }
   .chart { height: 240px; }
   .form-row { grid-template-columns: 1fr; }
+  .report-stats { grid-template-columns: 1fr 1fr; }
+  .download-btn { margin-left: 0; }
+  .contract-note { padding: 18px; }
   .range-label { min-width: 0; }
 }
 

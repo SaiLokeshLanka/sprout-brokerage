@@ -102,7 +102,13 @@ export function InvestmentsPage() {
               <span data-testid="funds-blocked">{formatPaise(blockedPaise)}</span>
             </div>
             <div>
-              <span className="muted">Realised P&amp;L</span>
+              <span className="muted">Realised P&amp;L today</span>
+              <span className={state.realizedTodayPaise >= 0 ? 'up' : 'down'} data-testid="funds-realized-today">
+                {formatPaise(state.realizedTodayPaise)}
+              </span>
+            </div>
+            <div>
+              <span className="muted">Realised P&amp;L (all time)</span>
               <span className={state.realizedPaise >= 0 ? 'up' : 'down'} data-testid="funds-realized">
                 {formatPaise(state.realizedPaise)}
               </span>
@@ -116,8 +122,42 @@ export function InvestmentsPage() {
               Withdraw
             </Link>
           </div>
+          <Link to="/reports" className="link small center reports-link" data-testid="go-reports">
+            P&amp;L reports, trade book &amp; statements →
+          </Link>
         </div>
+
+        {p.rows.length > 0 && <Allocation rows={p.rows.map((r) => ({ sector: bySymbol[r.holding.symbol]?.sector ?? 'Other', value: r.current }))} />}
       </aside>
+    </div>
+  );
+}
+
+/** Share of current value per sector, as horizontal bars. Updates live with prices. */
+function Allocation({ rows }: { rows: { sector: string; value: number }[] }) {
+  const total = rows.reduce((s, r) => s + r.value, 0);
+  const bySector = new Map<string, number>();
+  for (const r of rows) bySector.set(r.sector, (bySector.get(r.sector) ?? 0) + r.value);
+  const sectors = [...bySector.entries()].sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="card allocation" data-testid="allocation">
+      <h3>Sector allocation</h3>
+      {sectors.map(([sector, value]) => {
+        const pct = total ? (value / total) * 100 : 0;
+        return (
+          <div key={sector} className="alloc-row" data-testid="alloc-row">
+            <div className="alloc-label">
+              <span>{sector}</span>
+              <span className="strong">{pct.toFixed(1)}%</span>
+            </div>
+            <div className="alloc-track">
+              <div className="alloc-bar" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="muted small">{formatINR(value)}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -149,6 +149,16 @@ export function Header() {
                   className="menu-item"
                   onClick={() => {
                     setMenuOpen(false);
+                    navigate('/reports');
+                  }}
+                  data-testid="menu-reports"
+                >
+                  Reports &amp; statements
+                </button>
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
                     navigate('/account');
                   }}
                   data-testid="menu-account"

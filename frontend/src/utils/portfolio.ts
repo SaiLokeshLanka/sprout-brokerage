@@ -25,7 +25,8 @@ export function computePortfolio(holdings: Record<string, Holding>, quotes: Quot
       current,
       pnl,
       pnlPct: invested ? (pnl / invested) * 100 : 0,
-      dayPnl: q ? (ltp - q.prevClose) * holding.qty : 0,
+      // Same rule as the server: shares bought today are measured from their buy price, not yesterday's close.
+      dayPnl: current - holding.dayBasis,
     };
   });
 

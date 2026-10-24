@@ -4,6 +4,8 @@ import { ConnectionBanner, FullPageLoader } from './components/common';
 import { Header } from './components/Header';
 import { MarketProvider, useMarket } from './market/MarketContext';
 import { AccountPage } from './pages/AccountPage';
+import { ContractNotePage } from './pages/ContractNotePage';
+import { ReportsPage } from './pages/ReportsPage';
 import { ExplorePage } from './pages/ExplorePage';
 import { FundsPage } from './pages/FundsPage';
 import { InvestmentsPage } from './pages/InvestmentsPage';
@@ -66,6 +68,8 @@ export default function App() {
               <Route path="watchlist" element={<WatchlistPage />} />
               <Route path="funds" element={<FundsPage />} />
               <Route path="account" element={<AccountPage />} />
+              <Route path="reports" element={<ReportsPage />} />
+              <Route path="reports/contract-note/:date" element={<ContractNotePage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

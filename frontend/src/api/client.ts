@@ -133,3 +133,36 @@ export const api = {
 };
 
 export const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
+
+/**
+ * Downloads a file (e.g. a CSV report) from an authenticated endpoint.
+ * A plain <a href> can't send the access token, so we fetch it, then save the blob.
+ */
+export async function downloadFile(path: string, fallbackName: string) {
+  const get = () =>
+    fetch(`/api${path}`, {
+      credentials: 'same-origin',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    });
+  let res = await get();
+  if (res.status === 401 && (await refreshSession())) res = await get();
+  if (!res.ok) {
+    let serverMessage: string | undefined;
+    try {
+      serverMessage = (await res.json()).message;
+    } catch {
+      // not JSON
+    }
+    throw new ApiError(res.status, describeError(res.status, Array.isArray(serverMessage) ? serverMessage[0] : serverMessage));
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking immediately can cancel the download in some browsers (Edge); free the memory a bit later.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

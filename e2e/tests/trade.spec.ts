@@ -1,42 +1,8 @@
-import { APIRequestContext, expect, Page, test } from '@playwright/test';
-
-const API = 'http://localhost:3000/api';
-
-const inr = (rupees: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(rupees);
-/** Round paise to the ₹0.05 tick. */
-const tick5 = (paise: number) => Math.round(paise / 5) * 5;
-
-/** Creates a brand-new user through the API (₹1,00,000 welcome money) and logs in through the UI. */
-async function loginAsNewUser(page: Page, request: APIRequestContext) {
-  const email = `pw.${Date.now()}.${Math.random().toString(36).slice(2, 6)}@example.com`;
-  const password = 'Secret123';
-  const res = await request.post(`${API}/auth/register`, { data: { fullName: 'Playwright Trader', email, password } });
-  expect(res.ok()).toBeTruthy();
-
-  await page.goto('/login');
-  await page.getByTestId('login-email').fill(email);
-  await page.getByTestId('login-password').fill(password);
-  await page.getByTestId('login-submit').click();
-  await expect(page.getByTestId('index-strip')).toBeVisible();
-}
-
-/** Freezes the market and sets an exact price (paise) for a symbol. */
-async function setPrice(request: APIRequestContext, symbol: string, paise: number) {
-  await request.post(`${API}/test/market/pause`);
-  const res = await request.post(`${API}/test/market/price`, { data: { symbol, price: paise / 100 } });
-  expect(res.ok()).toBeTruthy();
-}
-
-async function prevClose(request: APIRequestContext, symbol: string) {
-  return (await (await request.get(`${API}/market/quotes/${symbol}`)).json()).prevClosePaise as number;
-}
+import { expect, test } from '@playwright/test';
+import { inr, loginAsNewUser, prevClose, resetMarket, setPrice, tick5 } from './helpers';
 
 test.describe('Trading', () => {
-  test.afterEach(async ({ request }) => {
-    await request.post(`${API}/test/market/session`, { data: { state: 'auto' } });
-    await request.post(`${API}/test/market/resume`);
-  });
+  test.afterEach(async ({ request }) => resetMarket(request));
 
   test('a market buy debits the wallet and creates a holding', async ({ page, request }) => {
     await loginAsNewUser(page, request);

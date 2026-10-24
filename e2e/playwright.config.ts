@@ -38,7 +38,15 @@ export default defineConfig({
   projects: [
     {
       name: 'edge',
-      use: { ...devices['Desktop Edge'], channel: 'msedge' },
+      use: {
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
+        launchOptions: {
+          // Edge opens its downloads panel as an extra hidden page after every download, which
+          // Playwright then reports as "Target page, context or browser has been closed". Turn it off.
+          args: ['--disable-features=msDownloadsHub,msEdgeDownloadsHub,DownloadBubble,DownloadBubbleV2'],
+        },
+      },
     },
   ],
 });

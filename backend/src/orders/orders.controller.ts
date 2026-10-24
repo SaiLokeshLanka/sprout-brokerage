@@ -36,10 +36,4 @@ export class OrdersController {
   cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.orders.cancel(user.id, id);
   }
-
-  /** GET /api/portfolio/holdings — shares owned, average price, and total realised P&L */
-  @Get('portfolio/holdings')
-  holdings(@CurrentUser() user: AuthUser) {
-    return this.orders.holdings(user.id);
-  }
 }

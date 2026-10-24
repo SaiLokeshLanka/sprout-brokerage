@@ -376,23 +376,6 @@ export class OrdersService {
     return toOrderView(order);
   }
 
-  async holdings(userId: string) {
-    const [rows, realized] = await Promise.all([
-      this.prisma.holding.findMany({ where: { userId, qty: { gt: 0 } }, orderBy: { symbol: 'asc' } }),
-      this.prisma.trade.aggregate({ where: { userId }, _sum: { realizedPnlPaise: true } }),
-    ]);
-    return {
-      holdings: rows.map((h) => ({
-        symbol: h.symbol,
-        qty: h.qty,
-        reservedQty: h.reservedQty,
-        investedPaise: Number(h.totalCostPaise),
-        avgPricePaise: Number(h.totalCostPaise) / h.qty,
-      })),
-      realizedPnlPaise: Number(realized._sum.realizedPnlPaise ?? 0n),
-    };
-  }
-
   private notify(order: Order) {
     this.gateway.emitToUser(order.userId, 'order', toOrderView(order));
   }

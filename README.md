@@ -88,7 +88,13 @@ Every route requires `Authorization: Bearer <accessToken>` unless marked public.
 | GET    | `/api/orders`                | yes    | Your orders, newest first. Query: `status`, `limit` |
 | GET    | `/api/orders/:id`            | yes    | One of your orders (404 for anyone else's)   |
 | DELETE | `/api/orders/:id`            | yes    | Cancel an `OPEN` order (409 otherwise)       |
-| GET    | `/api/portfolio/holdings`    | yes    | Shares owned, average price, realised P&L    |
+| GET    | `/api/portfolio/holdings`    | yes    | Shares at live prices, day basis, realised P&L (today / all time) |
+| GET    | `/api/portfolio/summary`     | yes    | Totals (invested, current, P&L, day P&L, net worth) + sector allocation |
+| GET    | `/api/portfolio/trades`      | yes    | Trade book. Query: `from`, `to`, `symbol`, `limit` |
+| GET    | `/api/reports/pnl`           | yes    | Realised P&L per stock. Query: `from`, `to` (default: this financial year) |
+| GET    | `/api/reports/statement`     | yes    | Cash statement with opening/closing balance  |
+| GET    | `/api/reports/contract-note` | yes    | One day's trades. Query: `date=YYYY-MM-DD`   |
+| GET    | `/api/reports/{pnl,trades,statement}.csv` | yes | CSV downloads (same query params)  |
 | WS     | `/socket.io` namespace `/account` | token | Private event `order` whenever one of your orders changes |
 | GET    | `/api/market/status`         | public | Is the market open? (`MARKET_MODE=always` or `nse`) |
 | GET    | `/api/market/quotes`         | public | Latest quote for every instrument (paise)    |
@@ -122,6 +128,17 @@ In the browser (dev mode) the same hooks are available as `window.__market.pause
 Open orders are matched against prices on every tick by the server, and expire when the market closes
 or a new trading day starts.
 
+## How P&L is calculated
+
+- **Average cost:** a holding's average price = total cost ÷ shares. Selling removes shares at that average.
+- **Realised P&L** (on each sell) = sale value − average cost of the shares sold.
+- **Unrealised P&L** = shares × live price − total cost.
+- **Day's P&L** = shares × live price − day basis, where the day basis counts shares held from before
+  today at yesterday's close and shares bought today at their buy price.
+- **Net worth** = free cash + blocked cash + shares at market value
+  (always = money deposited − withdrawn + unrealised + realised P&L).
+- Report date ranges are IST calendar days; the default is the Indian financial year (1 April – 31 March).
+
 ## How live prices flow
 
 ```
@@ -136,6 +153,8 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
   - `market-smoke.mjs` (34 checks): quotes, tick size, circuit limits, candles, WebSocket stream, test hooks
   - `orders-smoke.mjs` (57 checks): buy/sell/limit/cancel/expiry, rejections, idempotency, races, privacy,
     account WebSocket, and database invariants (ledger, blocked funds, reserved shares, holdings)
+  - `portfolio-smoke.mjs` (49 checks): valuation, day P&L, realised P&L, allocation, trade book, P&L report,
+    statement, contract note, CSV exports, date validation
 - `npm run test:e2e` — Playwright UI tests in Microsoft Edge (see `e2e/README.md`)
 
 ## Conventions
@@ -152,7 +171,7 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - [x] **Phase 1** — auth (JWT + rotating refresh cookie), profile & KYC, double-entry wallet ledger
 - [x] **Phase 2** — server-side market simulator, Redis pub/sub, WebSocket prices, candles, market sessions
 - [x] **Phase 3** — server-side order management: orders, holdings, matching engine, blocked funds, expiry
-- [ ] Phase 4 — portfolio & P&L
+- [x] **Phase 4** — portfolio valuation & day P&L, trade book, P&L report, statement, contract notes, CSV exports
 - [ ] Phase 6 — pro features (indicators, options chain, advanced orders)
 - [ ] Phase 7 — Playwright framework
 - [ ] Phase 8 — CI/CD and deployment

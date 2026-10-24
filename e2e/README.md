@@ -23,7 +23,9 @@ e2e/
 └── tests/
     ├── login.spec.ts      redirect, wrong password, form validation, demo login/logout
     ├── market.spec.ts     prices set via API test hooks appear in the UI; closed market blocks trading
-    └── trade.spec.ts      buy, limit order fill, cancel, sell with profit, rejection (fresh user per test)
+    ├── trade.spec.ts      buy, limit order fill, cancel, sell with profit, rejection (fresh user per test)
+    ├── reports.spec.ts    P&L report + CSV download, contract note, statement, allocation, date errors
+    └── helpers.ts         shared helpers: new user + login, set price, API orders, money formatting
 ```
 
 ## Notes
@@ -32,4 +34,6 @@ e2e/
 - The market is shared, so tests that pause it or set prices run one at a time (`workers: 1`)
   and always resume it in `afterEach`.
 - Test hooks (`/api/test/market/*`) need `ENABLE_TEST_HOOKS=true` in `backend/.env`.
+- Edge is launched with its downloads panel disabled: otherwise it opens a hidden extra page after each
+  download, and Playwright reports "Target page, context or browser has been closed" at the end of the test.
 - The full framework (page objects, fixtures, API tests, CI) is roadmap Phase 7.

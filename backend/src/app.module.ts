@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module';
 import { InstrumentsModule } from './instruments/instruments.module';
 import { MarketModule } from './market/market.module';
 import { OrdersModule } from './orders/orders.module';
+import { PortfolioModule } from './portfolio/portfolio.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { UsersModule } from './users/users.module';
@@ -22,6 +23,7 @@ import { WalletModule } from './wallet/wallet.module';
     InstrumentsModule,
     MarketModule,
     OrdersModule,
+    PortfolioModule,
   ],
 })
 export class AppModule {}
