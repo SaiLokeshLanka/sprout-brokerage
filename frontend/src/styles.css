@@ -6,14 +6,15 @@
   --border: #e9e9eb;
   --text: #44475b;
   --text-strong: #1b1b1f;
-  --muted: #7c7e8c;
-  --primary: #6c5ce7;
+  /* Text colours meet WCAG AA contrast (4.5:1) on every background they're used on. */
+  --muted: #666874;
+  --primary: #5a4bd1;
   --primary-hover: #00a078;
   --primary-soft: #e6f7f2;
-  --up: #00b386;
-  --down: #eb5b3c;
+  --up: #047857;
+  --down: #c4361a;
   --down-soft: #fdeeea;
-  --warn: #c27c0e;
+  --warn: #8a5a00;
   --shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
   --shadow-lg: 0 8px 24px rgba(16, 24, 40, 0.12);
   --radius: 12px;
@@ -27,7 +28,12 @@
   --border: #2c2c2e;
   --text: #c9cad1;
   --text-strong: #f3f3f5;
-  --muted: #8e8f99;
+  --muted: #9a9ba5;
+  /* Lighter accents for dark backgrounds (dark text goes on accent-coloured buttons). */
+  --primary: #a29bfe;
+  --up: #00b386;
+  --down: #ff7a5c;
+  --warn: #e6a23c;
   --primary-soft: rgba(0, 179, 134, 0.14);
   --down-soft: rgba(235, 91, 60, 0.14);
   --shadow: none;
@@ -150,6 +156,7 @@ h3 { font-size: 16px; font-weight: 600; }
 }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-primary.sell { background: var(--down); }
+:root[data-theme='dark'] .btn-primary { color: #121212; }
 .btn-primary.sell:hover { filter: brightness(0.95); }
 .btn-primary.inline { display: inline-block; width: auto; padding: 0 24px; }
 .btn-text { background: none; border: none; padding: 6px 4px; font-weight: 500; }

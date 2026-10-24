@@ -11,7 +11,7 @@ and Playwright test automation. **Paper trading only — all money is virtual an
 | Backend    | NestJS 10 (TypeScript)                                    |
 | Database   | PostgreSQL 16 via Prisma ORM                              |
 | Cache / pub-sub | Redis 7                                              |
-| Testing    | Playwright UI tests (`e2e/`), Vitest unit tests, API smoke scripts |
+| Testing    | Playwright framework (`e2e/`: API, UI, visual, accessibility), Vitest unit tests, API smoke scripts |
 
 ## Repository layout
 
@@ -56,7 +56,7 @@ npm run dev            # API on :3000 and web app on :5173
 | `npm run db:setup`     | `db:up` + `db:migrate` + `db:seed`                    |
 | `npm run format`       | Format code with Prettier                             |
 | `npm run test:unit`    | Unit tests (chart indicator maths, Vitest)            |
-| `npm run test:e2e`     | Playwright UI tests (needs the app running)           |
+| `npm run test:e2e`     | Playwright: API, UI, visual and accessibility tests (needs the app running) |
 
 Create a new migration after editing `backend/prisma/schema.prisma`:
 `npm run db:migrate:new -w backend -- --name describe_change`
@@ -198,7 +198,8 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
   - `pro-smoke.mjs` (77 checks): charges against the published rates, SL / SL-M / stop buy, GTT single and OCO,
     options chain (put-call parity, Greeks), option trading rules and expiry settlement
 - `npm run test:unit` — Vitest unit tests for the indicator maths (SMA, EMA, RSI against Wilder's published example, MACD, Bollinger)
-- `npm run test:e2e` — Playwright UI tests in Microsoft Edge (see `e2e/README.md`)
+- `npm run test:e2e` — the Playwright framework (see `e2e/README.md`): 43 API tests, 32 UI tests in Microsoft Edge,
+  8 visual (screenshot) tests and 11 accessibility scans, with page objects and fixtures
 
 ## Conventions
 
@@ -216,5 +217,5 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - [x] **Phase 3** — server-side order management: orders, holdings, matching engine, blocked funds, expiry
 - [x] **Phase 4** — portfolio valuation & day P&L, trade book, P&L report, statement, contract notes, CSV exports
 - [x] **Phase 6** — charges, stop-loss (SL, SL-M) and GTT orders, candlestick chart with indicators, index options chain
-- [ ] Phase 7 — Playwright framework
+- [x] **Phase 7** — Playwright framework: page objects, fixtures, API tests, visual and accessibility tests, tags
 - [ ] Phase 8 — CI/CD and deployment
