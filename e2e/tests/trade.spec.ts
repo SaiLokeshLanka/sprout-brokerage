@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { inr, loginAsNewUser, prevClose, resetMarket, setPrice, tick5 } from './helpers';
+import { deliveryCharges, inr, loginAsNewUser, prevClose, resetMarket, setPrice, tick5 } from './helpers';
 
 test.describe('Trading', () => {
   test.afterEach(async ({ request }) => resetMarket(request));
@@ -9,17 +9,23 @@ test.describe('Trading', () => {
     const price = tick5(await prevClose(request, 'TCS'));
     await setPrice(request, 'TCS', price);
 
+    const charges = deliveryCharges('BUY', 2 * price);
+
     await page.goto('/stocks/TCS');
     await page.getByTestId('order-qty').fill('2');
+    // Before buying, the panel shows the charges and the total to pay.
+    await expect(page.getByTestId('order-charges-total')).toHaveText(inr(charges / 100));
+    await expect(page.getByTestId('order-approx')).toHaveText(inr((2 * price + charges) / 100));
     await page.getByTestId('place-order').click();
 
     await expect(page.getByTestId('order-result')).toContainText(`Bought 2 × TCS @ ${inr(price / 100)}`);
     await expect(page.getByTestId('your-position')).toContainText('Shares2');
 
-    // The money really left the wallet: the server ledger shows the trade.
+    // The money really left the wallet: the server ledger shows the trade and its charges.
     await page.goto('/funds');
-    await expect(page.getByTestId('wallet-balance')).toHaveText(inr(100000 - (2 * price) / 100));
-    await expect(page.getByTestId('txn-row').first()).toHaveAttribute('data-type', 'TRADE_BUY');
+    await expect(page.getByTestId('wallet-balance')).toHaveText(inr(100000 - (2 * price + charges) / 100));
+    await expect(page.getByTestId('txn-row').nth(0)).toHaveAttribute('data-type', 'CHARGES');
+    await expect(page.getByTestId('txn-row').nth(1)).toHaveAttribute('data-type', 'TRADE_BUY');
   });
 
   test('a limit buy waits with money blocked, then fills when the price drops', async ({ page, request }) => {
@@ -34,8 +40,9 @@ test.describe('Trading', () => {
     await page.getByTestId('place-order').click();
     await expect(page.getByTestId('order-result')).toContainText('Limit order placed');
 
+    // Blocked = limit price × qty + the charges at that price.
     await page.goto('/funds');
-    await expect(page.getByTestId('wallet-blocked')).toHaveText(inr(limit / 100));
+    await expect(page.getByTestId('wallet-blocked')).toHaveText(inr((limit + deliveryCharges('BUY', limit)) / 100));
 
     await page.goto('/orders');
     await expect(page.getByTestId('order-status').first()).toHaveText('OPEN');

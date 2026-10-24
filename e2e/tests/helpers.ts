@@ -11,6 +11,22 @@ export const inr = (rupees: number) =>
 /** Round paise to the ₹0.05 tick. */
 export const tick5 = (paise: number) => Math.round(paise / 5) * 5;
 
+/**
+ * Charges on a delivery (CNC) stock trade, in paise — the published rates, written out
+ * independently of the app so the test checks the app against the rules, not against itself.
+ * STT 0.1% both sides, exchange 0.00297%, SEBI ₹10/crore, stamp duty 0.015% on buys,
+ * GST 18% on (brokerage + exchange + SEBI). No brokerage on delivery. Each part rounded to the paisa.
+ */
+export function deliveryCharges(side: 'BUY' | 'SELL', valuePaise: number) {
+  const part = (rate: number) => Math.round(valuePaise * rate);
+  const stt = part(0.001);
+  const exchange = part(0.0000297);
+  const sebi = part(0.000001);
+  const stamp = side === 'BUY' ? part(0.00015) : 0;
+  const gst = Math.round((exchange + sebi) * 0.18);
+  return stt + exchange + sebi + stamp + gst;
+}
+
 /** Today's date in India, YYYY-MM-DD. */
 export const todayIst = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
 

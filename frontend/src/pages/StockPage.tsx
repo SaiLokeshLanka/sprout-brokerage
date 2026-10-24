@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { AdvancedChart } from '../components/AdvancedChart';
 import { Change, MarketStatusPill, StockLogo } from '../components/common';
 import { OrderPanel } from '../components/OrderPanel';
 import { PriceChart } from '../components/PriceChart';
@@ -11,6 +13,20 @@ export function StockPage() {
   const inst = useInstrument(symbol);
   const q = useQuote(symbol);
   const { state, toggleWatchlist } = useTrade();
+  const [chartMode, setChartMode] = useState<'simple' | 'advanced'>(() => {
+    try {
+      return localStorage.getItem('sprout.chart.mode') === 'advanced' ? 'advanced' : 'simple';
+    } catch {
+      return 'simple';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('sprout.chart.mode', chartMode);
+    } catch {
+      // storage unavailable
+    }
+  }, [chartMode]);
 
   if (inst && !q) {
     return (
@@ -70,7 +86,21 @@ export function StockPage() {
           </div>
         </section>
 
-        <PriceChart symbol={symbol} ltp={q.ltp} />
+        <div className="chart-mode pill-tabs" role="tablist" aria-label="Chart">
+          {(['simple', 'advanced'] as const).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={chartMode === m}
+              className={`pill ${chartMode === m ? 'active' : ''}`}
+              onClick={() => setChartMode(m)}
+              data-testid={`chart-mode-${m}`}
+            >
+              {m === 'simple' ? 'Simple' : 'Advanced (candles + indicators)'}
+            </button>
+          ))}
+        </div>
+        {chartMode === 'simple' ? <PriceChart symbol={symbol} ltp={q.ltp} /> : <AdvancedChart symbol={symbol} ltp={q.ltp} />}
 
         {holding && (
           <section className="card position-card" data-testid="your-position">
@@ -143,9 +173,10 @@ export function StockPage() {
                 <div key={o.id} className="list-row">
                   <span className={`badge ${o.side === 'BUY' ? 'buy' : 'sell'}`}>{o.side}</span>
                   <span>
-                    {o.qty} @ {o.orderType === 'LIMIT' ? formatINR(o.limitPrice!) : 'Market'}
+                    {o.qty} @ {o.fillPrice !== undefined ? formatINR(o.fillPrice) : o.limitPrice !== undefined ? formatINR(o.limitPrice) : 'Market'}
+                    {o.triggerPrice !== undefined && <span className="muted small"> (trigger {formatINR(o.triggerPrice)})</span>}
                   </span>
-                  <span className={`status ${o.status.toLowerCase()}`}>{o.status}</span>
+                  <span className={`status ${o.status.toLowerCase()}`}>{o.status.replace('_', ' ')}</span>
                   <span className="muted small">{formatTime(o.createdAt)}</span>
                 </div>
               ))}

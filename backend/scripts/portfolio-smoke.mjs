@@ -74,7 +74,8 @@ async function main() {
     check('unrealised P&L is 0 at the buy price', s.totals.pnlPaise === 0);
     check("shares bought today: day P&L is 0 (measured from buy price, not yesterday's close)", s.totals.dayPnlPaise === 0,
       `dayPnl=${s.totals.dayPnlPaise}; prevClose-based would be ${4 * (t1 - tcs0) + 10 * (i1 - infy0)}`);
-    check('cash = start − invested', s.cashPaise === START - invested);
+    check('charges were paid on the 3 buys', s.totals.chargesPaise > 0);
+    check('cash = start − invested − charges', s.cashPaise === START - invested - s.totals.chargesPaise);
     check('net worth = cash + blocked + shares', s.totals.netWorthPaise === s.cashPaise + s.blockedPaise + s.totals.currentValuePaise);
 
     // ── Price moves ──────────────────────────────────────────────────────
@@ -95,9 +96,9 @@ async function main() {
     check('sell 1 TCS: realised today = sale − average cost', s.totals.realizedTodayPaise === t2 - t1, `${s.totals.realizedTodayPaise}`);
     check('realised all-time matches', s.totals.realizedPnlPaise === t2 - t1);
     check('TCS holding now 3 shares', s.holdings.find((h) => h.symbol === 'TCS').qty === 3);
-    check('net worth = start + unrealised + realised (no money appears or disappears)',
-      s.totals.netWorthPaise === START + s.totals.pnlPaise + s.totals.realizedPnlPaise,
-      `${s.totals.netWorthPaise} vs ${START + s.totals.pnlPaise + s.totals.realizedPnlPaise}`);
+    check('net worth = start + unrealised + realised − charges (no money appears or disappears)',
+      s.totals.netWorthPaise === START + s.totals.pnlPaise + s.totals.realizedPnlPaise - s.totals.chargesPaise,
+      `${s.totals.netWorthPaise} vs ${START + s.totals.pnlPaise + s.totals.realizedPnlPaise - s.totals.chargesPaise}`);
 
     // ── Allocation ───────────────────────────────────────────────────────
     console.log('\nAllocation');
@@ -120,6 +121,8 @@ async function main() {
     check('TCS row: bought 4, sold 1, realised = sale − cost', tRow.buyQty === 4 && tRow.sellQty === 1 && tRow.realizedPnlPaise === t2 - t1, JSON.stringify(tRow));
     check('totals: turnover = buys + sells', pnl.totals.turnoverPaise === invested + t2);
     check('totals: realised = sum of rows', pnl.totals.realizedPnlPaise === pnl.rows.reduce((t, r) => t + r.realizedPnlPaise, 0));
+    check('totals: charges = all charges paid, net = realised − charges', pnl.totals.chargesPaise === s.totals.chargesPaise &&
+      pnl.totals.netRealizedPnlPaise === pnl.totals.realizedPnlPaise - pnl.totals.chargesPaise, JSON.stringify(pnl.totals));
     const yesterday = istDate(-1);
     check('a range without trades is empty', (await u.get(`/reports/pnl?from=${yesterday}&to=${yesterday}`)).data.rows.length === 0);
 
@@ -148,7 +151,10 @@ async function main() {
     console.log('\nContract note');
     const cn = (await u.get(`/reports/contract-note?date=${istDate()}`)).data;
     check("today's contract note lists all 4 trades", cn.trades?.length === 4);
-    check('net = sells − buys', cn.totals.netPaise === t2 - invested);
+    check('net = sells − buys − charges', cn.totals.netPaise === t2 - invested - cn.totals.chargesPaise && cn.totals.chargesPaise === s.totals.chargesPaise);
+    const parts = ['brokeragePaise', 'sttPaise', 'exchangePaise', 'sebiPaise', 'stampDutyPaise', 'gstPaise'];
+    check('contract note charge breakdown adds up to the total', parts.reduce((t, k) => t + cn.charges[k], 0) === cn.charges.totalPaise, JSON.stringify(cn.charges));
+    check('delivery: no brokerage, STT and stamp duty charged', cn.charges.brokeragePaise === 0 && cn.charges.sttPaise > 0 && cn.charges.stampDutyPaise > 0);
     check('client details and note number', cn.client.name === 'Priya' && /^CN-\d{8}-[A-Z0-9]{8}$/.test(cn.noteNumber), JSON.stringify(cn.client));
     check('date with no trades → empty note', (await u.get(`/reports/contract-note?date=${yesterday}`)).data.trades.length === 0);
     check('missing date → 400', (await u.get('/reports/contract-note')).status === 400);
@@ -160,7 +166,8 @@ async function main() {
       `${pc.headers.get('content-type')} | ${pc.headers.get('content-disposition')}`);
     const lines = pc.text.trim().split('\r\n');
     check('P&L CSV: header row, CRLF line endings', lines[0].startsWith('Symbol,Name,Trades') && pc.text.includes('\r\n'));
-    check('P&L CSV: TCS row has realised P&L in rupees', lines.some((l) => l.startsWith('TCS,') && l.endsWith(`,${rupees(t2 - t1)}`)), lines.join(' | '));
+    check('P&L CSV: TCS row has realised P&L in rupees', lines.some((l) => l.startsWith('TCS,') && l.includes(`,${rupees(t2 - t1)},`)), lines.join(' | '));
+    check('P&L CSV: charges and net P&L columns', lines[0].endsWith('Realised P&L (INR),Charges (INR),Net P&L (INR)'), lines[0]);
     check('P&L CSV: name with comma-free text, TOTAL row last', lines[lines.length - 1].startsWith('TOTAL'));
     const tc = await u.get('/reports/trades.csv');
     check('trades CSV: header + 4 rows', tc.text.trim().split('\r\n').length === 5);

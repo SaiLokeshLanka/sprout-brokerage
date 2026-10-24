@@ -17,6 +17,7 @@ const TYPE_LABEL: Record<WalletTxn['type'], string> = {
   TRADE_SELL: 'Shares sold',
   ORDER_BLOCK: 'Blocked for order',
   ORDER_RELEASE: 'Released from order',
+  CHARGES: 'Charges & taxes',
 };
 
 /** Returns the amount in paise, or an error message. Same limits as the server. */

@@ -98,6 +98,34 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
     return { ...base, mode: this.mode, paused: this.paused, serverTime: new Date().toISOString() };
   }
 
+  /**
+   * OHLC candles with volume for the advanced chart. 1D = the real minute candles;
+   * longer ranges are built from the same synthetic history as the line chart.
+   */
+  ohlc(symbol: string, range: ChartRange) {
+    if (range === '1D') {
+      if (!this.quotes.has(symbol)) throw new NotFoundException(`No market data for ${symbol}`);
+      return { symbol, range, candles: (this.minuteCandles.get(symbol) ?? []).map((c) => ({ ...c })) };
+    }
+    const { points } = this.candles(symbol, range); // 404 for unknown symbols
+    const inst = this.instruments.get(symbol)!;
+    const { vol } = HISTORY_RANGES[range];
+    const rnd = mulberry32(hashString(`${symbol}:${range}:ohlc`));
+    const candles: Candle[] = points.map((p, i) => {
+      const o = i === 0 ? p.v : points[i - 1].v;
+      const wick = () => 1 + rnd() * vol * 0.6;
+      return {
+        t: p.t,
+        o,
+        h: this.roundToTick(inst, Math.max(o, p.v) * wick()),
+        l: this.roundToTick(inst, Math.min(o, p.v) / wick()),
+        c: p.v,
+        vol: Math.floor((0.3 + rnd()) * (inst.type === 'INDEX' ? 0 : 400_000)),
+      };
+    });
+    return { symbol, range, candles };
+  }
+
   /** Chart points (t = unix seconds, v = price in paise). 1D uses real minute candles. */
   candles(symbol: string, range: ChartRange) {
     const quote = this.quotes.get(symbol);
@@ -191,10 +219,10 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
     quote.lowPaise = Math.min(quote.lowPaise, ltp);
     quote.volume += addVolume;
     quote.updatedAt = Date.now();
-    this.recordCandle(quote.symbol, ltp);
+    this.recordCandle(quote.symbol, ltp, addVolume);
   }
 
-  private recordCandle(symbol: string, price: number) {
+  private recordCandle(symbol: string, price: number, volume: number) {
     const minute = Math.floor(Date.now() / 60_000) * 60;
     const candles = this.minuteCandles.get(symbol) ?? [];
     const last = candles[candles.length - 1];
@@ -202,8 +230,9 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
       last.h = Math.max(last.h, price);
       last.l = Math.min(last.l, price);
       last.c = price;
+      last.vol += volume;
     } else {
-      candles.push({ t: minute, o: last?.c ?? price, h: price, l: price, c: price });
+      candles.push({ t: minute, o: last?.c ?? price, h: price, l: price, c: price, vol: volume });
       if (candles.length > MAX_MINUTE_CANDLES) candles.shift();
     }
     this.minuteCandles.set(symbol, candles);
@@ -288,7 +317,8 @@ export class MarketSimulatorService implements OnApplicationBootstrap, OnModuleD
     let prevClose = open;
     for (let i = 0; i < count; i++) {
       const c = this.clampToCircuit(inst, quote, this.roundToTick(inst, this.bridge(open, ltp, walk, i)));
-      candles.push({ t: start + i * 60, o: prevClose, h: Math.max(prevClose, c), l: Math.min(prevClose, c), c });
+      const vol = inst.type === 'INDEX' ? 0 : Math.floor(rnd() * 60_000);
+      candles.push({ t: start + i * 60, o: prevClose, h: Math.max(prevClose, c), l: Math.min(prevClose, c), c, vol });
       prevClose = c;
     }
     return candles;

@@ -11,14 +11,17 @@ test.describe('Portfolio & reports', () => {
     const sellAt = tick5(buyAt * 1.02);
     // Arrange through the API: buy 2, price rises, sell 2.
     await setPrice(request, 'TCS', buyAt);
-    await marketOrder(request, token, 'TCS', 'BUY', 2);
+    const buy = await marketOrder(request, token, 'TCS', 'BUY', 2);
     await setPrice(request, 'TCS', sellAt);
-    await marketOrder(request, token, 'TCS', 'SELL', 2);
+    const sell = await marketOrder(request, token, 'TCS', 'SELL', 2);
     const profit = (2 * (sellAt - buyAt)) / 100;
+    const charges = (buy.chargesPaise + sell.chargesPaise) / 100;
 
     await page.goto('/reports');
     await expect(page.getByTestId('pnl-row-TCS').getByTestId('pnl-row-realized')).toHaveText(inr(profit));
     await expect(page.getByTestId('pnl-total')).toHaveText(inr(profit));
+    await expect(page.getByTestId('pnl-charges')).toHaveText(inr(charges));
+    await expect(page.getByTestId('pnl-net')).toHaveText(inr(Math.round((profit - charges) * 100) / 100));
 
     // Downloads: start waiting for the 'download' event BEFORE clicking, then read the saved file.
     const downloadPromise = page.waitForEvent('download');
@@ -28,15 +31,16 @@ test.describe('Portfolio & reports', () => {
     const csv = readFileSync((await download.path())!, 'utf8');
     expect(csv.split('\r\n')[0]).toContain('Symbol,Name,Trades');
     expect(csv).toContain(`TCS,Tata Consultancy Services,2,2,`);
-    expect(csv).toContain(`,${profit.toFixed(2)}\r\n`);
+    // … realised P&L, charges, net P&L at the end of the TCS row.
+    expect(csv).toContain(`,${profit.toFixed(2)},${charges.toFixed(2)},${(profit - charges).toFixed(2)}\r\n`);
   });
 
   test('the trade book links to a printable contract note', async ({ page, request }) => {
     const token = await loginAsNewUser(page, request);
     const price = tick5(await prevClose(request, 'INFY'));
     await setPrice(request, 'INFY', price);
-    await marketOrder(request, token, 'INFY', 'BUY', 5);
-    await marketOrder(request, token, 'INFY', 'SELL', 2);
+    const buy = await marketOrder(request, token, 'INFY', 'BUY', 5);
+    const sell = await marketOrder(request, token, 'INFY', 'SELL', 2);
 
     await page.goto('/reports');
     await page.getByTestId('report-tab-trades').click();
@@ -44,9 +48,12 @@ test.describe('Portfolio & reports', () => {
 
     await page.getByTestId(`contract-note-${todayIst()}`).click();
     await expect(page.getByTestId('cn-row')).toHaveCount(2);
-    // Bought 5, sold 2 at the same price → you pay for 3 shares.
+    // Bought 5, sold 2 at the same price → you pay for 3 shares, plus the charges on both trades.
+    const charges = buy.chargesPaise + sell.chargesPaise;
+    await expect(page.getByTestId('cn-charges')).toContainText(inr(charges / 100));
+    await expect(page.getByTestId('cn-brokerage')).toContainText(inr(0)); // delivery is brokerage-free
     await expect(page.getByTestId('cn-net')).toContainText('Net amount payable');
-    await expect(page.getByTestId('cn-net')).toContainText(inr((3 * price) / 100));
+    await expect(page.getByTestId('cn-net')).toContainText(inr((3 * price + charges) / 100));
     await expect(page.getByTestId('print-note')).toBeVisible();
   });
 
@@ -54,11 +61,11 @@ test.describe('Portfolio & reports', () => {
     const token = await loginAsNewUser(page, request);
     const price = tick5(await prevClose(request, 'ITC'));
     await setPrice(request, 'ITC', price);
-    await marketOrder(request, token, 'ITC', 'BUY', 10);
+    const buy = await marketOrder(request, token, 'ITC', 'BUY', 10);
 
     await page.goto('/reports?tab=statement');
-    await expect(page.getByTestId('statement-row')).toHaveCount(2); // welcome bonus + the buy
-    await expect(page.getByTestId('statement-closing')).toHaveText(inr(100000 - (10 * price) / 100));
+    await expect(page.getByTestId('statement-row')).toHaveCount(3); // welcome bonus, the buy, its charges
+    await expect(page.getByTestId('statement-closing')).toHaveText(inr(100000 - (10 * price + buy.chargesPaise) / 100));
   });
 
   test('the investments page shows sector allocation and realised P&L today', async ({ page, request }) => {

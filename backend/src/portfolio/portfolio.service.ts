@@ -1,14 +1,23 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ChargeBreakdown, sumCharges } from '../charges/charges';
 import { csvRupees, toCsv } from '../common/csv';
 import { financialYearStart, istDateTime, istDayStart, istRange, isValidDate, todayIst } from '../common/ist-date';
 import { roundDiv } from '../common/money';
-import { MarketSimulatorService } from '../market/market-simulator.service';
+import { optionDisplayName, parseOptionSymbol } from '../options/option-contract';
+import { OptionsService } from '../options/options.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toPublicUser } from '../users/user.mapper';
 
 const MAX_RANGE_DAYS = 5 * 366;
 
 const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 10_000) / 100 : 0);
+
+/** Display name of a symbol: the instrument's name, or a readable option contract name. */
+function nameOf(symbol: string, names: { symbol: string; name: string }[]) {
+  const contract = parseOptionSymbol(symbol);
+  if (contract) return optionDisplayName(contract);
+  return names.find((n) => n.symbol === symbol)?.name ?? symbol;
+}
 
 /**
  * Read-only views of a user's money and shares: live portfolio valuation,
@@ -19,7 +28,7 @@ const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) 
 export class PortfolioService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly simulator: MarketSimulatorService,
+    private readonly options: OptionsService,
   ) {}
 
   // ───────────────────────────── Holdings & summary ─────────────────────────────
@@ -34,7 +43,7 @@ export class PortfolioService {
    */
   async holdings(userId: string) {
     const todayStart = istDayStart(todayIst());
-    const [rows, realizedAll, realizedToday, todayBuys] = await Promise.all([
+    const [rows, realizedAll, realizedToday, todayBuys, chargesAll] = await Promise.all([
       this.prisma.holding.findMany({ where: { userId, qty: { gt: 0 } }, orderBy: { symbol: 'asc' } }),
       this.prisma.trade.aggregate({ where: { userId }, _sum: { realizedPnlPaise: true } }),
       this.prisma.trade.aggregate({ where: { userId, createdAt: { gte: todayStart } }, _sum: { realizedPnlPaise: true } }),
@@ -43,6 +52,7 @@ export class PortfolioService {
         where: { userId, side: 'BUY', createdAt: { gte: todayStart } },
         _sum: { qty: true, valuePaise: true },
       }),
+      this.prisma.trade.aggregate({ where: { userId }, _sum: { chargesPaise: true } }),
     ]);
     const instruments = await this.prisma.instrument.findMany({
       where: { symbol: { in: rows.map((r) => r.symbol) } },
@@ -51,7 +61,8 @@ export class PortfolioService {
 
     const holdings = rows.map((h) => {
       const inst = instruments.find((i) => i.symbol === h.symbol);
-      const quote = this.simulator.getQuote(h.symbol);
+      const contract = parseOptionSymbol(h.symbol);
+      const quote = this.options.priceOf(h.symbol);
       const invested = Number(h.totalCostPaise);
       const ltp = quote?.ltpPaise ?? Math.round(invested / h.qty);
       const prevClose = quote?.prevClosePaise ?? ltp;
@@ -67,8 +78,10 @@ export class PortfolioService {
       const current = h.qty * ltp;
       return {
         symbol: h.symbol,
-        name: inst?.name ?? h.symbol,
-        sector: inst?.sector ?? null,
+        name: contract ? optionDisplayName(contract) : (inst?.name ?? h.symbol),
+        sector: contract ? 'F&O' : (inst?.sector ?? null),
+        /** EQUITY = shares, OPTIONS = an index option position (qty in units). */
+        segment: contract ? ('OPTIONS' as const) : ('EQUITY' as const),
         qty: h.qty,
         reservedQty: h.reservedQty,
         avgPricePaise: invested / h.qty,
@@ -87,11 +100,37 @@ export class PortfolioService {
       holdings,
       realizedPnlPaise: Number(realizedAll._sum.realizedPnlPaise ?? 0n),
       realizedTodayPaise: Number(realizedToday._sum.realizedPnlPaise ?? 0n),
+      /** Brokerage, taxes and fees paid on all trades so far. */
+      chargesPaise: Number(chargesAll._sum.chargesPaise ?? 0n),
     };
   }
 
+  /** Option positions with live premiums and Greeks (the chain's numbers for each contract held). */
+  async optionPositions(userId: string) {
+    const { holdings } = await this.holdings(userId);
+    return holdings
+      .filter((h) => h.segment === 'OPTIONS')
+      .map((h) => {
+        const contract = parseOptionSymbol(h.symbol)!;
+        const q = this.options.quote(contract);
+        return {
+          ...h,
+          underlying: contract.underlying,
+          expiry: contract.expiry,
+          strikePaise: contract.strikePaise,
+          kind: contract.kind,
+          lotSize: q?.lotSize ?? null,
+          spotPaise: q?.spotPaise ?? null,
+          delta: q?.delta ?? null,
+          theta: q?.theta ?? null,
+          iv: q?.iv ?? null,
+          expired: q?.expired ?? false,
+        };
+      });
+  }
+
   async summary(userId: string) {
-    const [{ holdings, realizedPnlPaise, realizedTodayPaise }, accounts] = await Promise.all([
+    const [{ holdings, realizedPnlPaise, realizedTodayPaise, chargesPaise }, accounts] = await Promise.all([
       this.holdings(userId),
       this.prisma.ledgerAccount.findMany({ where: { userId, type: { in: ['USER_CASH', 'USER_BLOCKED'] } } }),
     ]);
@@ -122,6 +161,7 @@ export class PortfolioService {
         dayPnlPct: pct(current - dayBasis, dayBasis),
         realizedTodayPaise,
         realizedPnlPaise,
+        chargesPaise,
         /** Everything you own: free cash + blocked cash + shares at market value. */
         netWorthPaise: cash + blocked + current,
       },
@@ -167,6 +207,7 @@ export class PortfolioService {
         qty: t.qty,
         pricePaise: t.pricePaise,
         valuePaise: Number(t.valuePaise),
+        chargesPaise: Number(t.chargesPaise),
         realizedPnlPaise: t.realizedPnlPaise === null ? null : Number(t.realizedPnlPaise),
         createdAt: t.createdAt,
       })),
@@ -185,9 +226,10 @@ export class PortfolioService {
       select: { symbol: true, name: true },
     });
 
-    const bySymbol = new Map<string, { buyQty: number; buyValue: number; sellQty: number; sellValue: number; realized: number; count: number }>();
+    const bySymbol = new Map<string, { buyQty: number; buyValue: number; sellQty: number; sellValue: number; realized: number; charges: number; count: number }>();
     for (const t of trades) {
-      const row = bySymbol.get(t.symbol) ?? { buyQty: 0, buyValue: 0, sellQty: 0, sellValue: 0, realized: 0, count: 0 };
+      const row = bySymbol.get(t.symbol) ?? { buyQty: 0, buyValue: 0, sellQty: 0, sellValue: 0, realized: 0, charges: 0, count: 0 };
+      row.charges += Number(t.chargesPaise);
       if (t.side === 'BUY') {
         row.buyQty += t.qty;
         row.buyValue += Number(t.valuePaise);
@@ -204,7 +246,7 @@ export class PortfolioService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([symbol, r]) => ({
         symbol,
-        name: names.find((n) => n.symbol === symbol)?.name ?? symbol,
+        name: nameOf(symbol, names),
         trades: r.count,
         buyQty: r.buyQty,
         buyValuePaise: r.buyValue,
@@ -213,9 +255,12 @@ export class PortfolioService {
         sellValuePaise: r.sellValue,
         avgSellPaise: r.sellQty ? r.sellValue / r.sellQty : null,
         realizedPnlPaise: r.realized,
+        /** Charges on every buy and sell of this stock in the range. */
+        chargesPaise: r.charges,
+        netRealizedPnlPaise: r.realized - r.charges,
       }));
 
-    const sum = (key: 'buyValuePaise' | 'sellValuePaise' | 'realizedPnlPaise' | 'trades') => rows.reduce((s, r) => s + r[key], 0);
+    const sum = (key: 'buyValuePaise' | 'sellValuePaise' | 'realizedPnlPaise' | 'chargesPaise' | 'trades') => rows.reduce((s, r) => s + r[key], 0);
     return {
       from: range.from,
       to: range.to,
@@ -226,7 +271,9 @@ export class PortfolioService {
         sellValuePaise: sum('sellValuePaise'),
         turnoverPaise: sum('buyValuePaise') + sum('sellValuePaise'),
         realizedPnlPaise: sum('realizedPnlPaise'),
-        chargesPaise: 0,
+        chargesPaise: sum('chargesPaise'),
+        /** Realised P&L after all charges in the range (charges on buys included). */
+        netRealizedPnlPaise: sum('realizedPnlPaise') - sum('chargesPaise'),
       },
     };
   }
@@ -284,6 +331,7 @@ export class PortfolioService {
     ]);
     const buyValue = trades.filter((t) => t.side === 'BUY').reduce((s, t) => s + Number(t.valuePaise), 0);
     const sellValue = trades.filter((t) => t.side === 'SELL').reduce((s, t) => s + Number(t.valuePaise), 0);
+    const charges = sumCharges(trades.map((t) => (t.charges ?? {}) as Partial<ChargeBreakdown>));
     const publicUser = toPublicUser(user);
 
     return {
@@ -295,19 +343,24 @@ export class PortfolioService {
         orderId: t.orderId,
         time: t.createdAt,
         symbol: t.symbol,
+        /** Readable contract name for options; null for stocks. */
+        name: parseOptionSymbol(t.symbol) ? nameOf(t.symbol, []) : null,
         side: t.side,
         orderType: t.order.orderType,
         product: t.order.product,
         qty: t.qty,
         pricePaise: t.pricePaise,
         valuePaise: Number(t.valuePaise),
+        chargesPaise: Number(t.chargesPaise),
       })),
+      /** Every charge type added up over the day's trades. */
+      charges,
       totals: {
         buyValuePaise: buyValue,
         sellValuePaise: sellValue,
-        chargesPaise: 0,
+        chargesPaise: charges.totalPaise,
         /** Positive = you receive money, negative = you pay. */
-        netPaise: sellValue - buyValue,
+        netPaise: sellValue - buyValue - charges.totalPaise,
       },
     };
   }
@@ -327,12 +380,17 @@ export class PortfolioService {
       csvRupees(x.sellValuePaise),
       x.avgSellPaise === null ? '' : csvRupees(Math.round(x.avgSellPaise)),
       csvRupees(x.realizedPnlPaise),
+      csvRupees(x.chargesPaise),
+      csvRupees(x.netRealizedPnlPaise),
     ]);
-    rows.push(['TOTAL', '', r.totals.trades, '', csvRupees(r.totals.buyValuePaise), '', '', csvRupees(r.totals.sellValuePaise), '', csvRupees(r.totals.realizedPnlPaise)]);
+    rows.push([
+      'TOTAL', '', r.totals.trades, '', csvRupees(r.totals.buyValuePaise), '', '', csvRupees(r.totals.sellValuePaise), '',
+      csvRupees(r.totals.realizedPnlPaise), csvRupees(r.totals.chargesPaise), csvRupees(r.totals.netRealizedPnlPaise),
+    ]);
     return {
       filename: `sprout-pnl-${r.from}-to-${r.to}.csv`,
       csv: toCsv(
-        ['Symbol', 'Name', 'Trades', 'Buy qty', 'Buy value (INR)', 'Avg buy (INR)', 'Sell qty', 'Sell value (INR)', 'Avg sell (INR)', 'Realised P&L (INR)'],
+        ['Symbol', 'Name', 'Trades', 'Buy qty', 'Buy value (INR)', 'Avg buy (INR)', 'Sell qty', 'Sell value (INR)', 'Avg sell (INR)', 'Realised P&L (INR)', 'Charges (INR)', 'Net P&L (INR)'],
         rows,
       ),
     };
@@ -343,7 +401,7 @@ export class PortfolioService {
     return {
       filename: `sprout-trades-${r.from}-to-${r.to}.csv`,
       csv: toCsv(
-        ['Date & time (IST)', 'Symbol', 'Side', 'Order type', 'Product', 'Qty', 'Price (INR)', 'Value (INR)', 'Realised P&L (INR)', 'Trade ID', 'Order ID'],
+        ['Date & time (IST)', 'Symbol', 'Side', 'Order type', 'Product', 'Qty', 'Price (INR)', 'Value (INR)', 'Charges (INR)', 'Realised P&L (INR)', 'Trade ID', 'Order ID'],
         [...r.trades].reverse().map((t) => [
           istDateTime(t.createdAt),
           t.symbol,
@@ -353,6 +411,7 @@ export class PortfolioService {
           t.qty,
           csvRupees(t.pricePaise),
           csvRupees(t.valuePaise),
+          csvRupees(t.chargesPaise),
           csvRupees(t.realizedPnlPaise),
           t.id,
           t.orderId,

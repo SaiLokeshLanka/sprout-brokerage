@@ -1,5 +1,5 @@
-// Orders smoke test (Phase 3): placing, filling, cancelling and expiring orders,
-// money & shares through the ledger, races, private WebSocket updates, DB invariants.
+// Orders smoke test (Phase 3, charges since Phase 6): placing, filling, cancelling and expiring orders,
+// money & shares through the ledger (every trade also pays its charges), races, private WebSocket updates, DB invariants.
 // Usage: start the API, then:  npm run test:api -w backend   (needs ENABLE_TEST_HOOKS=true)
 // Creates throwaway users. Pauses the shared market while running and resumes it at the end.
 
@@ -84,11 +84,13 @@ async function main() {
     const mb = await alice.order({ symbol: 'tcs', side: 'BUY', orderType: 'MARKET', qty: 2 });
     check('market BUY 2 TCS → 201 EXECUTED at the market price', mb.status === 201 && mb.data.status === 'EXECUTED' && mb.data.fillPricePaise === p0, JSON.stringify(mb.data));
     let w = await alice.wallet();
-    check('wallet cash debited by exactly 2 × price', w.balancePaise === cash0 - 2 * p0, `${cash0} → ${w.balancePaise}`);
+    check('the trade paid charges (STT, stamp duty, exchange fee...)', mb.data.chargesPaise > 0, JSON.stringify(mb.data));
+    check('wallet cash debited by exactly 2 × price + charges', w.balancePaise === cash0 - 2 * p0 - mb.data.chargesPaise, `${cash0} → ${w.balancePaise}`);
     let h = await alice.holding('TCS');
     check('holding: 2 TCS at average = fill price', h?.qty === 2 && h.avgPricePaise === p0, JSON.stringify(h));
     const txns = (await alice.get('/wallet/transactions')).data.items;
-    check('wallet history shows the TRADE_BUY', txns[0]?.type === 'TRADE_BUY' && txns[0].amountPaise === -2 * p0, JSON.stringify(txns[0]));
+    check('wallet history shows the TRADE_BUY and its CHARGES', txns.some((t) => t.type === 'TRADE_BUY' && t.amountPaise === -2 * p0) &&
+      txns.some((t) => t.type === 'CHARGES' && t.amountPaise === -mb.data.chargesPaise), JSON.stringify(txns.slice(0, 2)));
 
     // ── Input validation (400, nothing recorded) ─────────────────────────
     console.log('\nValidation');
@@ -118,14 +120,14 @@ async function main() {
     const lb = await alice.order({ symbol: 'TCS', side: 'BUY', orderType: 'LIMIT', qty: 3, limitPricePaise: lim });
     check('limit BUY below market → OPEN', lb.data?.status === 'OPEN', JSON.stringify(lb.data));
     w = await alice.wallet();
-    check('3 × limit price moved from cash to blocked', w.balancePaise === cashBefore - 3 * lim && w.blockedPaise === 3 * lim && lb.data.blockedPaise === 3 * lim,
-      JSON.stringify(w));
+    check('3 × limit price + charges moved from cash to blocked', lb.data.blockedPaise > 3 * lim && w.balancePaise === cashBefore - lb.data.blockedPaise &&
+      w.blockedPaise === lb.data.blockedPaise, JSON.stringify(w));
     const fillAt = lim - 5;
     await setPrice('TCS', fillAt);
     const filled = await waitForStatus(alice, lb.data.id, 'EXECUTED');
     check('price drops below limit → order fills at the better market price', filled?.status === 'EXECUTED' && filled.fillPricePaise === fillAt, JSON.stringify(filled));
     w = await alice.wallet();
-    check('blocked released; unused part refunded to cash', w.blockedPaise === 0 && w.balancePaise === cashBefore - 3 * fillAt, JSON.stringify(w));
+    check('blocked released; unused part refunded to cash', w.blockedPaise === 0 && w.balancePaise === cashBefore - 3 * fillAt - filled.chargesPaise, JSON.stringify(w));
     h = await alice.holding('TCS');
     check('holding: 5 TCS with correct average price', h.qty === 5 && h.investedPaise === 2 * p0 + 3 * fillAt, JSON.stringify(h));
 
@@ -161,7 +163,7 @@ async function main() {
     const expectRealized = Math.round(fillAt + 4 * high - 5 * avg);
     check('realised P&L = proceeds − average cost', Math.abs(pf.realizedPnlPaise - expectRealized) <= 1, `${pf.realizedPnlPaise} vs ${expectRealized}`);
     const wSell = await alice.wallet();
-    check('sale proceeds credited to cash', wSell.balancePaise === cashC + fillAt + 4 * high, `${wSell.balancePaise}`);
+    check('sale proceeds minus charges credited to cash', wSell.balancePaise === cashC + fillAt + 4 * high - ms.data.chargesPaise - sold.chargesPaise, `${wSell.balancePaise}`);
 
     // ── Risk rejections (recorded as REJECTED) ───────────────────────────
     console.log('\nRejections');
@@ -207,7 +209,8 @@ async function main() {
     const okBuys = buys.filter((r) => r.data?.status === 'EXECUTED').length;
     check('5 simultaneous buys of 30% of cash → exactly 3 execute', okBuys === 3 && buys.filter((r) => r.data?.status === 'REJECTED').length === 2,
       buys.map((r) => r.data?.status).join(','));
-    check('cash never negative', (await bob.wallet()).balancePaise === bobCash - 3 * q * pr);
+    const bobCharges = buys.filter((r) => r.data?.status === 'EXECUTED').reduce((t, r) => t + r.data.chargesPaise, 0);
+    check('cash never negative', (await bob.wallet()).balancePaise === bobCash - 3 * q * pr - bobCharges);
     const sells = await Promise.all(Array.from({ length: 4 }, () => bob.order({ symbol: 'RELIANCE', side: 'SELL', orderType: 'MARKET', qty: q })));
     check('holding 3q, 4 simultaneous sells of q → exactly 3 execute', sells.filter((r) => r.data?.status === 'EXECUTED').length === 3,
       sells.map((r) => r.data?.status).join(','));
@@ -254,13 +257,13 @@ async function main() {
     check('no user cash/blocked account is negative', negative === 0);
     const blockedMismatch = await prisma.$queryRaw`
       SELECT a."userId" FROM ledger_accounts a
-      LEFT JOIN orders o ON o."userId" = a."userId" AND o.status = 'OPEN'
+      LEFT JOIN orders o ON o."userId" = a."userId" AND o.status IN ('OPEN', 'TRIGGER_PENDING')
       WHERE a.type = 'USER_BLOCKED'
       GROUP BY a."userId", a."balancePaise" HAVING a."balancePaise" <> COALESCE(SUM(o."blockedPaise"), 0)`;
     check("each user's blocked balance = money held by their open orders", blockedMismatch.length === 0, `${blockedMismatch.length} users`);
     const reservedMismatch = await prisma.$queryRaw`
       SELECT h.id FROM holdings h
-      LEFT JOIN orders o ON o."userId" = h."userId" AND o.symbol = h.symbol AND o.status = 'OPEN' AND o.side = 'SELL'
+      LEFT JOIN orders o ON o."userId" = h."userId" AND o.symbol = h.symbol AND o.status IN ('OPEN', 'TRIGGER_PENDING') AND o.side = 'SELL'
       GROUP BY h.id, h."reservedQty" HAVING h."reservedQty" <> COALESCE(SUM(o.qty), 0)`;
     check('reserved shares = shares in open sell orders', reservedMismatch.length === 0);
     const qtyMismatch = await prisma.$queryRaw`
@@ -270,6 +273,9 @@ async function main() {
     check('holding qty = shares bought − shares sold', qtyMismatch.length === 0);
     const badHold = await prisma.$queryRaw`SELECT id FROM holdings WHERE "reservedQty" > qty OR qty < 0 OR "totalCostPaise" < 0`;
     check('no holding has negative or over-reserved shares', badHold.length === 0);
+    const [{ charged }] = await prisma.$queryRaw`SELECT COALESCE(SUM("chargesPaise"), 0)::bigint AS charged FROM trades`;
+    const chargesAccount = await prisma.ledgerAccount.findUnique({ where: { id: 'system-charges' } });
+    check('charges account balance = charges recorded on all trades', chargesAccount?.balancePaise === charged, `${chargesAccount?.balancePaise} vs ${charged}`);
   } finally {
     sockets.forEach((s) => s.close());
     await hook('market/session', { state: 'auto' }).catch(() => {});

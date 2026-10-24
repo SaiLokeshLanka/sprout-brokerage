@@ -17,8 +17,10 @@ interface PnlReport {
     sellQty: number;
     avgSellPaise: number | null;
     realizedPnlPaise: number;
+    chargesPaise: number;
+    netRealizedPnlPaise: number;
   }[];
-  totals: { trades: number; turnoverPaise: number; realizedPnlPaise: number; chargesPaise: number };
+  totals: { trades: number; turnoverPaise: number; realizedPnlPaise: number; chargesPaise: number; netRealizedPnlPaise: number };
 }
 
 interface TradeBook {
@@ -31,6 +33,7 @@ interface TradeBook {
     pricePaise: number;
     valuePaise: number;
     realizedPnlPaise: number | null;
+    chargesPaise: number;
     createdAt: string;
   }[];
 }
@@ -193,9 +196,14 @@ function PnlView({ report }: { report: PnlReport }) {
         <Stat label="Realised P&L" testId="pnl-total">
           {signed(report.totals.realizedPnlPaise)}
         </Stat>
+        <Stat label="Charges & taxes" testId="pnl-charges">
+          {formatPaise(report.totals.chargesPaise)}
+        </Stat>
+        <Stat label="Net P&L after charges" testId="pnl-net">
+          {signed(report.totals.netRealizedPnlPaise)}
+        </Stat>
         <Stat label="Turnover (buys + sells)">{formatPaise(report.totals.turnoverPaise)}</Stat>
         <Stat label="Trades">{report.totals.trades}</Stat>
-        <Stat label="Charges">{formatPaise(report.totals.chargesPaise)}</Stat>
       </div>
       {report.rows.length === 0 ? (
         <div className="card empty-state muted">No trades in this period.</div>
@@ -210,6 +218,7 @@ function PnlView({ report }: { report: PnlReport }) {
                 <th className="num">Sold</th>
                 <th className="num hide-sm">Avg sell</th>
                 <th className="num">Realised P&amp;L</th>
+                <th className="num hide-sm">Charges</th>
               </tr>
             </thead>
             <tbody>
@@ -228,13 +237,19 @@ function PnlView({ report }: { report: PnlReport }) {
                   <td className="num strong" data-testid="pnl-row-realized">
                     {r.sellQty ? signed(r.realizedPnlPaise) : '—'}
                   </td>
+                  <td className="num hide-sm muted" data-testid="pnl-row-charges">
+                    {formatPaise(r.chargesPaise)}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <p className="muted small">Realised P&amp;L uses the average-cost method. Charges are zero in paper trading.</p>
+      <p className="muted small">
+        Realised P&amp;L uses the average-cost method and is shown before charges. Charges include brokerage, STT, exchange
+        and SEBI fees, stamp duty and GST on every buy and sell in the period.
+      </p>
     </>
   );
 }
@@ -253,6 +268,7 @@ function TradesView({ book }: { book: TradeBook }) {
               <th className="num">Qty</th>
               <th className="num">Price</th>
               <th className="num hide-sm">Value</th>
+              <th className="num hide-sm">Charges</th>
               <th className="num">Realised</th>
             </tr>
           </thead>
@@ -266,6 +282,7 @@ function TradesView({ book }: { book: TradeBook }) {
                 <td className="num">{t.qty}</td>
                 <td className="num">{formatPaise(t.pricePaise)}</td>
                 <td className="num hide-sm">{formatPaise(t.valuePaise)}</td>
+                <td className="num hide-sm muted">{formatPaise(t.chargesPaise)}</td>
                 <td className="num">{t.realizedPnlPaise === null ? '—' : signed(t.realizedPnlPaise)}</td>
               </tr>
             ))}

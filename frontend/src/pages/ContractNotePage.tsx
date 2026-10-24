@@ -17,11 +17,33 @@ interface ContractNote {
     orderType: string;
     product: string;
     qty: number;
+    name: string | null;
     pricePaise: number;
     valuePaise: number;
+    chargesPaise: number;
   }[];
+  charges: Charges;
   totals: { buyValuePaise: number; sellValuePaise: number; chargesPaise: number; netPaise: number };
 }
+
+interface Charges {
+  brokeragePaise: number;
+  sttPaise: number;
+  exchangePaise: number;
+  sebiPaise: number;
+  stampDutyPaise: number;
+  gstPaise: number;
+  totalPaise: number;
+}
+
+const CHARGE_ROWS: [keyof Charges, string][] = [
+  ['brokeragePaise', 'Brokerage'],
+  ['sttPaise', 'Securities Transaction Tax (STT)'],
+  ['exchangePaise', 'Exchange transaction charges'],
+  ['sebiPaise', 'SEBI turnover fee'],
+  ['stampDutyPaise', 'Stamp duty'],
+  ['gstPaise', 'GST (18% on brokerage + exchange + SEBI)'],
+];
 
 /** One day's trades in a printable layout. "Print / Save as PDF" uses the browser's print dialog. */
 export function ContractNotePage() {
@@ -109,7 +131,8 @@ export function ContractNotePage() {
                   <td>{new Date(t.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
                   <td className="small">{t.orderId.slice(0, 8).toUpperCase()}</td>
                   <td>
-                    {t.symbol} <span className="muted small">NSE · {t.product === 'DELIVERY' ? 'CNC' : 'MIS'}</span>
+                    {t.name ?? t.symbol}{' '}
+                    <span className="muted small">NSE · {t.name ? 'NFO' : t.product === 'DELIVERY' ? 'CNC' : 'MIS'}</span>
                   </td>
                   <td>{t.side === 'BUY' ? 'Buy' : 'Sell'}</td>
                   <td className="num">{t.qty}</td>
@@ -130,8 +153,14 @@ export function ContractNotePage() {
             <span>Total sell value</span>
             <span>{formatPaise(note.totals.sellValuePaise)}</span>
           </div>
-          <div>
-            <span>Brokerage, taxes &amp; charges</span>
+          {CHARGE_ROWS.map(([key, label]) => (
+            <div key={key} className="cn-charge" data-testid={`cn-${key.replace('Paise', '')}`}>
+              <span>{label}</span>
+              <span>{formatPaise(note.charges[key])}</span>
+            </div>
+          ))}
+          <div data-testid="cn-charges">
+            <span>Total charges</span>
             <span>{formatPaise(note.totals.chargesPaise)}</span>
           </div>
           <div className="strong" data-testid="cn-net">

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { EmptyState, StockLogo } from '../components/common';
 import { InvestmentSummary } from '../components/InvestmentSummary';
+import { OptionPositions } from './OptionsPage';
 import { useMarket } from '../market/MarketContext';
 import { useTrade } from '../store/TradeContext';
 import { formatChange, formatINR, formatPaise } from '../utils/format';
@@ -83,6 +84,8 @@ export function InvestmentsPage() {
             </div>
           )}
         </section>
+
+        <OptionPositions title="F&O positions" />
       </div>
 
       <aside className="page-aside">

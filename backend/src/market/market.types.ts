@@ -22,13 +22,14 @@ export interface Quote {
   updatedAt: number;
 }
 
-/** One-minute OHLC candle; t = unix seconds at the start of the minute. */
+/** OHLC candle; t = unix seconds at the start of the period, vol = shares traded in it. */
 export interface Candle {
   t: number;
   o: number;
   h: number;
   l: number;
   c: number;
+  vol: number;
 }
 
 export interface MarketStatus {

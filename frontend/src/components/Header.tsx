@@ -9,6 +9,7 @@ import { BrandLogo, StockLogo } from './common';
 const NAV = [
   { to: '/', label: 'Explore', end: true },
   { to: '/investments', label: 'Investments' },
+  { to: '/options', label: 'F&O', testId: 'nav-options' },
   { to: '/orders', label: 'Orders' },
   { to: '/watchlist', label: 'Watchlist' },
 ];
@@ -65,7 +66,7 @@ export function Header() {
 
         <nav className="nav" aria-label="Main">
           {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className="nav-link" data-testid={`nav-${n.label.toLowerCase()}`}>
+            <NavLink key={n.to} to={n.to} end={n.end} className="nav-link" data-testid={n.testId ?? `nav-${n.label.toLowerCase()}`}>
               {n.label}
             </NavLink>
           ))}

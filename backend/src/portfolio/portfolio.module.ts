@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { MarketModule } from '../market/market.module';
+import { OptionsModule } from '../options/options.module';
 import { PortfolioController } from './portfolio.controller';
 import { PortfolioService } from './portfolio.service';
 
 @Module({
-  imports: [MarketModule],
+  imports: [OptionsModule],
   controllers: [PortfolioController],
   providers: [PortfolioService],
 })

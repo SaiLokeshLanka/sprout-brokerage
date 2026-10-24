@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { InstrumentsModule } from './instruments/instruments.module';
 import { MarketModule } from './market/market.module';
+import { OptionsModule } from './options/options.module';
 import { OrdersModule } from './orders/orders.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,6 +23,7 @@ import { WalletModule } from './wallet/wallet.module';
     HealthModule,
     InstrumentsModule,
     MarketModule,
+    OptionsModule,
     OrdersModule,
     PortfolioModule,
   ],

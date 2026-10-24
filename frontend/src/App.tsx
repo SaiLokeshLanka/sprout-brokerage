@@ -10,6 +10,7 @@ import { ExplorePage } from './pages/ExplorePage';
 import { FundsPage } from './pages/FundsPage';
 import { InvestmentsPage } from './pages/InvestmentsPage';
 import { LoginPage } from './pages/LoginPage';
+import { OptionsPage } from './pages/OptionsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { StockPage } from './pages/StockPage';
 import { WatchlistPage } from './pages/WatchlistPage';
@@ -65,6 +66,7 @@ export default function App() {
               <Route path="stocks/:symbol" element={<StockPage />} />
               <Route path="investments" element={<InvestmentsPage />} />
               <Route path="orders" element={<OrdersPage />} />
+              <Route path="options" element={<OptionsPage />} />
               <Route path="watchlist" element={<WatchlistPage />} />
               <Route path="funds" element={<FundsPage />} />
               <Route path="account" element={<AccountPage />} />

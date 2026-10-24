@@ -12,6 +12,8 @@ import { JournalType, Prisma } from '@prisma/client';
 export const SYSTEM_BANK_ACCOUNT_ID = 'system-bank';
 /** The single "market" account every buy pays into and every sell is paid from. Created by a migration. */
 export const SYSTEM_EXCHANGE_ACCOUNT_ID = 'system-exchange';
+/** Collects brokerage, taxes and fees charged on trades. Created by a migration. */
+export const SYSTEM_CHARGES_ACCOUNT_ID = 'system-charges';
 
 export class InsufficientFundsError extends Error {
   constructor() {

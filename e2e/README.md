@@ -25,7 +25,10 @@ e2e/
     ├── market.spec.ts     prices set via API test hooks appear in the UI; closed market blocks trading
     ├── trade.spec.ts      buy, limit order fill, cancel, sell with profit, rejection (fresh user per test)
     ├── reports.spec.ts    P&L report + CSV download, contract note, statement, allocation, date errors
-    └── helpers.ts         shared helpers: new user + login, set price, API orders, money formatting
+    ├── advanced-orders.spec.ts  stop-loss trigger, error shown before placing, OCO GTT fires, cancel GTT
+    ├── chart.spec.ts      candlestick chart: SMA matches the candles, indicator strips on/off, ranges
+    ├── options.spec.ts    options chain, buy/sell a call, expiry settlement
+    └── helpers.ts         shared helpers: new user + login, set price, API orders, money formatting, charges
 ```
 
 ## Notes

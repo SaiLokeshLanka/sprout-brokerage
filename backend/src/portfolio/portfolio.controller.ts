@@ -27,6 +27,12 @@ export class PortfolioController {
     return this.portfolio.trades(user.id, q.from, q.to, q.symbol, q.limit);
   }
 
+  /** GET /api/portfolio/options — option positions with live premium, Greeks and expiry */
+  @Get('portfolio/options')
+  optionPositions(@CurrentUser() user: AuthUser) {
+    return this.portfolio.optionPositions(user.id);
+  }
+
   /** GET /api/reports/pnl?from&to — realised P&L per stock */
   @Get('reports/pnl')
   pnl(@CurrentUser() user: AuthUser, @Query() q: DateRangeQuery) {

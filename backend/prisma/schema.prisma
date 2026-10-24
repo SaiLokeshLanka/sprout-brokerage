@@ -71,6 +71,7 @@ model User {
 
   refreshTokens  RefreshToken[]
   ledgerAccounts LedgerAccount[]
+  gtts           Gtt[]
   journalEntries JournalEntry[]
   orders         Order[]
   trades         Trade[]
@@ -108,6 +109,8 @@ enum LedgerAccountType {
   SYSTEM_BANK
   /// The market: counterparty for every buy and sell (one shared account).
   SYSTEM_EXCHANGE
+  /// Brokerage, taxes and fees collected on trades (one shared account).
+  SYSTEM_CHARGES
 }
 
 model LedgerAccount {
@@ -137,6 +140,8 @@ enum JournalType {
   TRADE_BUY
   /// Exchange → cash, when a sell executes
   TRADE_SELL
+  /// Cash → charges: brokerage, STT, exchange fee, SEBI fee, stamp duty and GST on a trade
+  CHARGES
 }
 
 model JournalEntry {
@@ -182,6 +187,10 @@ enum OrderSide {
 enum OrderType {
   MARKET
   LIMIT
+  /// Stop-loss: when the price reaches the trigger, a limit order is placed
+  SL
+  /// Stop-loss market: when the price reaches the trigger, it executes at the market price
+  SL_M
 }
 
 enum ProductType {
@@ -190,6 +199,8 @@ enum ProductType {
 }
 
 enum OrderStatus {
+  /// Stop-loss order waiting for the price to reach its trigger
+  TRIGGER_PENDING
   /// Waiting for the price to reach the limit
   OPEN
   EXECUTED
@@ -201,24 +212,28 @@ enum OrderStatus {
 }
 
 model Order {
-  id              String      @id @default(uuid())
-  userId          String
-  symbol          String
-  side            OrderSide
-  orderType       OrderType
-  product         ProductType @default(DELIVERY)
-  qty             Int
-  limitPricePaise Int?
-  status          OrderStatus
-  /// Money held in the user's USER_BLOCKED account for this OPEN buy order.
-  blockedPaise    BigInt      @default(0)
-  fillPricePaise  Int?
+  id                String      @id @default(uuid())
+  userId            String
+  symbol            String
+  side              OrderSide
+  orderType         OrderType
+  product           ProductType @default(DELIVERY)
+  qty               Int
+  limitPricePaise   Int?
+  /// SL / SL_M only: the price that activates the order.
+  triggerPricePaise Int?
+  status            OrderStatus
+  /// Money held in the user's USER_BLOCKED account for this waiting buy order (price × qty + charges).
+  blockedPaise      BigInt      @default(0)
+  fillPricePaise    Int?
+  /// Total charges paid when the order executed.
+  chargesPaise      BigInt      @default(0)
   /// Why it was rejected, cancelled or expired.
-  statusReason    String?
-  idempotencyKey  String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  executedAt      DateTime?
+  statusReason      String?
+  idempotencyKey    String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  executedAt        DateTime?
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Restrict)
   trades Trade[]
@@ -239,8 +254,11 @@ model Trade {
   qty              Int
   pricePaise       Int
   valuePaise       BigInt
-  /// For sells: sale value minus the average cost of the shares sold.
+  /// For sells: sale value minus the average cost of the shares sold (before charges).
   realizedPnlPaise BigInt?
+  chargesPaise     BigInt    @default(0)
+  /// Charges split by type: { brokeragePaise, sttPaise, exchangePaise, sebiPaise, stampDutyPaise, gstPaise }
+  charges          Json?
   createdAt        DateTime  @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
@@ -266,4 +284,57 @@ model Holding {
 
   @@unique([userId, symbol])
   @@map("holdings")
+}
+
+// ─────────────────────────── GTT (Good Till Triggered) ───────────────────────────
+
+enum GttKind {
+  /// One trigger: place a limit order when the price reaches it
+  SINGLE
+  /// One Cancels Other (sell only): a target above the price and a stop-loss below it
+  OCO
+}
+
+enum GttStatus {
+  ACTIVE
+  /// The trigger was hit and the order was placed
+  TRIGGERED
+  CANCELLED
+  /// Not triggered within a year
+  EXPIRED
+  /// The trigger was hit but the order could not be placed (e.g. limit outside today's price band)
+  FAILED
+}
+
+/// A standing instruction that lives across days (up to a year). No money or shares are held for it.
+model Gtt {
+  id                    String    @id @default(uuid())
+  userId                String
+  symbol                String
+  side                  OrderSide
+  kind                  GttKind
+  qty                   Int
+  /// SINGLE: the trigger. OCO: the target (above the price when created).
+  triggerPricePaise     Int
+  limitPricePaise       Int
+  /// OCO only: the stop-loss leg (below the price when created).
+  stopTriggerPricePaise Int?
+  stopLimitPricePaise   Int?
+  /// Decides which way a SINGLE trigger fires (price rising to it, or falling to it).
+  ltpAtCreationPaise    Int
+  status                GttStatus @default(ACTIVE)
+  /// SINGLE, TARGET or STOPLOSS
+  triggeredLeg          String?
+  orderId               String?
+  statusReason          String?
+  expiresAt             DateTime
+  triggeredAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("gtts")
 }

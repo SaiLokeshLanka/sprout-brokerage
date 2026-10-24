@@ -13,7 +13,7 @@ export interface MoveResult {
 export interface WalletTxn {
   id: string;
   transactionId: string;
-  type: 'WELCOME_BONUS' | 'DEPOSIT' | 'WITHDRAWAL' | 'ORDER_BLOCK' | 'ORDER_RELEASE' | 'TRADE_BUY' | 'TRADE_SELL';
+  type: 'WELCOME_BONUS' | 'DEPOSIT' | 'WITHDRAWAL' | 'ORDER_BLOCK' | 'ORDER_RELEASE' | 'TRADE_BUY' | 'TRADE_SELL' | 'CHARGES';
   description: string;
   amountPaise: number;
   balanceAfterPaise: number;
