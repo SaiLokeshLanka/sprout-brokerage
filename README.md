@@ -200,6 +200,8 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - `npm run test:unit` — Vitest unit tests for the indicator maths (SMA, EMA, RSI against Wilder's published example, MACD, Bollinger)
 - `npm run test:e2e` — the Playwright framework (see `e2e/README.md`): 43 API tests, 32 UI tests in Microsoft Edge,
   8 visual (screenshot) tests and 11 accessibility scans, with page objects and fixtures
+- **CI** — `.github/workflows/ci.yml` runs all of the above on GitHub Actions for every push to `main` and every
+  pull request, against a fresh Postgres and Redis. See "Continuous integration" in `e2e/README.md`.
 
 ## Conventions
 
@@ -219,3 +221,5 @@ MarketSimulator (1 tick/s) ──► Redis  ├─ hash  market:quotes   ◄─�
 - [x] **Phase 6** — charges, stop-loss (SL, SL-M) and GTT orders, candlestick chart with indicators, index options chain
 - [x] **Phase 7** — Playwright framework: page objects, fixtures, API tests, visual and accessibility tests, tags
 - [ ] Phase 8 — CI/CD and deployment
+  - [x] CI: GitHub Actions workflows for typecheck, unit tests, API smoke checks and Playwright
+  - [ ] Deployment with https

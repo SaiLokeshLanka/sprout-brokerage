@@ -130,7 +130,7 @@ shows `storageState` working once, and proves the theft protection (`@slow`, it 
 ## Visual tests
 
 - Baselines live in `tests/visual/__screenshots__/<os>/`. Fonts render differently on Windows, macOS
-  and Linux, so each operating system has its own set (Linux ones will be created in CI, Phase 8).
+  and Linux, so each operating system has its own set (the Linux ones are created by a CI workflow, see below).
 - Anything that changes by itself (prices, generated ids, emails) is hidden with `mask`.
 - A failed comparison writes `expected`, `actual` and `diff` images to `test-results/` and shows them in the
   HTML report. If the change was intended, run `npm run test:visual:update -w e2e` and commit the new images.
@@ -142,6 +142,28 @@ returns a readable list of problems (rule, what is wrong, how to fix, which elem
 text too light to read on **every page** (grey, green, red, purple and amber text below the 4.5:1 contrast
 ratio, in both themes); it was fixed in five colour tokens in `frontend/src/styles.css`. Automated scans find roughly
 a third of accessibility problems; keyboard and screen-reader checks by a person are still needed.
+
+## Continuous integration (GitHub Actions)
+
+GitHub runs the tests on its own Linux machines; nothing needs to be running on your laptop.
+The files are in `.github/` at the repo root:
+
+| File | When it runs | What it does |
+| ---- | ------------ | ------------ |
+| `workflows/ci.yml` | Every push to `main`, every pull request, or by hand | Job 1: typecheck + unit tests. Job 2: starts the app, runs the API smoke checks and all Playwright tests |
+| `workflows/visual-baselines.yml` | By hand only | Takes new Linux screenshots and commits them |
+| `actions/e2e-setup/action.yml` | Used by both | The shared steps: install, start Postgres + Redis, build, start the app, install Edge |
+
+- **Results**: the repo's **Actions** tab. A green tick or red cross also appears next to each commit and pull request.
+- **Report**: open a run → **Artifacts** → download `playwright-report`, unzip, open `index.html`.
+  Failed tests include their screenshot, video and trace. If a run fails, `server-logs` has the API and web output.
+- **Retries**: on CI a failed test is retried once (`retries` in `playwright.config.ts`). A test that passes on
+  the retry is marked **flaky** in the report: fix those, don't ignore them.
+- **Visual tests on CI**: Linux needs its own baselines. Run **Update visual baselines** once (Actions tab →
+  the workflow → **Run workflow**). Until then `ci.yml` skips the visual project with a warning.
+  Run it again after any intended change to how the app looks.
+- **Locale and time zone**: CI machines run in UTC. `locale` and `timezoneId` in the config make the browser
+  behave like one in India everywhere.
 
 ## Test hooks used
 

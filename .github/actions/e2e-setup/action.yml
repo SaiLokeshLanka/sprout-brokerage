@@ -1,0 +1,51 @@
+# A "composite action": a list of steps saved under one name, so both workflows can reuse it.
+# It does on the CI machine what you do on your laptop before running tests.
+name: Start Sprout for testing
+description: Installs dependencies, starts Postgres and Redis, builds the app, runs it on localhost and installs Edge.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm # keeps downloaded packages between runs, so installs are faster
+
+    - name: Configure the API
+      shell: bash
+      # .env is never committed. The example file holds local-only values (test hooks on),
+      # which is what the tests need. Real secrets would come from GitHub Secrets instead.
+      # This must come before the install: Prisma notes where .env is when it is installed.
+      run: cp backend/.env.example backend/.env
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci # like npm install, but installs exactly what package-lock.json says
+
+    - name: Start Postgres and Redis
+      shell: bash
+      run: docker compose up -d --wait # --wait: continue only when both report healthy
+
+    - name: Create the tables and the demo user
+      shell: bash
+      run: npm run db:migrate && npm run db:seed
+
+    - name: Build the API and the web app
+      shell: bash
+      run: npm run build
+
+    - name: Start the API and the web app
+      shell: bash
+      # "&" runs a command in the background so the next step can start.
+      # curl retries until each one answers (or fails the job after about a minute).
+      run: |
+        npm run start -w backend > api.log 2>&1 &
+        npm run preview -w frontend -- --port 5173 --strictPort > web.log 2>&1 &
+        curl --silent --fail --retry 30 --retry-delay 2 --retry-connrefused http://localhost:3000/api/health
+        curl --silent --fail --retry 30 --retry-delay 2 --retry-connrefused --output /dev/null http://localhost:5173
+
+    - name: Install Microsoft Edge for Playwright
+      shell: bash
+      working-directory: e2e
+      run: npx playwright install --with-deps msedge ffmpeg # ffmpeg records the videos of failed tests

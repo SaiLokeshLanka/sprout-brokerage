@@ -1,0 +1,39 @@
+# Takes new baseline screenshots on Linux and commits them to the branch.
+# Run it by hand (Actions page → "Update visual baselines" → Run workflow):
+#   - once, to create the first Linux screenshots, and
+#   - after any intended change to how the app looks.
+name: Update visual baselines
+
+on:
+  workflow_dispatch:
+
+# Allow this workflow to push a commit. The CI workflow has no such permission.
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: Take screenshots and commit them
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the app
+        uses: ./.github/actions/e2e-setup
+
+      - name: Take new screenshots
+        working-directory: e2e
+        run: npx playwright test --project=visual --update-snapshots
+
+      - name: Commit the screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add e2e/tests/visual/__screenshots__
+          if git diff --cached --quiet; then
+            echo "Screenshots are unchanged. Nothing to commit."
+          else
+            git commit -m "Update Linux visual baselines"
+            git push
+          fi

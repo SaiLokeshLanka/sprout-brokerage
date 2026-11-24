@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
 import { WEB_URL } from './src/config';
 
 /**
@@ -12,6 +12,7 @@ import { WEB_URL } from './src/config';
  */
 
 // Microsoft Edge is already installed on Windows, so no browser download is needed.
+// On CI (Linux) it is installed with: npx playwright install msedge
 const edge = {
   ...devices['Desktop Edge'],
   channel: 'msedge',
@@ -21,6 +22,12 @@ const edge = {
     args: ['--disable-features=msDownloadsHub,msEdgeDownloadsHub,DownloadBubble,DownloadBubbleV2'],
   },
 };
+
+// 'list' prints results in the terminal; 'html' builds a report (npm run report -w e2e);
+// 'junit' writes an XML file that CI servers understand.
+const reporter: ReporterDescription[] = [['list'], ['html', { open: 'never' }], ['junit', { outputFile: 'test-results/junit.xml' }]];
+// On GitHub Actions, also show each failure as a note on the run page.
+if (process.env.CI) reporter.push(['github']);
 
 export default defineConfig({
   testDir: './tests',
@@ -42,9 +49,7 @@ export default defineConfig({
   // Running tests at the same time would make them fight over prices, so: one at a time.
   workers: 1,
 
-  // 'list' prints results in the terminal; 'html' builds a report (npm run report -w e2e);
-  // 'junit' writes an XML file that CI servers understand (Phase 8).
-  reporter: [['list'], ['html', { open: 'never' }], ['junit', { outputFile: 'test-results/junit.xml' }]],
+  reporter,
 
   // Screenshots for visual tests live next to the tests, one folder per operating system
   // (fonts render slightly differently on Windows, macOS and Linux).
@@ -53,6 +58,10 @@ export default defineConfig({
   use: {
     // page.goto('/login') means http://localhost:5173/login
     baseURL: WEB_URL,
+    // The browser behaves like one in India on every machine. CI servers run in UTC,
+    // and without this the app would show dates and times differently there.
+    locale: 'en-IN',
+    timezoneId: 'Asia/Kolkata',
     // Evidence collected when a test fails:
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
