@@ -1,0 +1,60 @@
+# Render Blueprint: describes the whole live setup, so Render can create it from this file.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# One web service (API + web app on one address), one Postgres database, one Key Value (Redis).
+# All on Render's free plans. Free limits to know about:
+#   - the web service sleeps after ~15 minutes without visitors; the next visit wakes it (~1 minute)
+#   - the free database expires 30 days after it is created
+#   - Key Value data lives in memory only (fine: Sprout keeps only live prices there)
+
+services:
+  - type: web
+    name: sprout
+    runtime: node
+    plan: free
+    region: singapore # the closest Render region to India
+    # Deploy only after the GitHub Actions checks on the commit pass. Red CI = no deploy.
+    autoDeployTrigger: checksPass
+    # --include=dev: the build needs TypeScript, Vite and the Nest CLI, which are dev dependencies.
+    buildCommand: npm ci --include=dev && npm run build
+    # Apply new database migrations and make sure the stocks and the demo user exist, then start.
+    startCommand: npm run db:migrate && npm run db:seed && npm run start -w backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sprout-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sprout-redis
+          property: connectionString
+      # A long random secret that Render creates once and keeps. Never written in the repo.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE # the site is served over https
+        value: 'true'
+      - key: ENABLE_TEST_HOOKS # never on a live site
+        value: 'false'
+      - key: MARKET_MODE # 'always' keeps the simulated market open, so visitors can trade any time
+        value: always
+
+  - type: keyvalue
+    name: sprout-redis
+    plan: free
+    region: singapore
+    ipAllowList: [] # no access from the internet; only the web service can reach it
+
+databases:
+  - name: sprout-db
+    plan: free
+    region: singapore
+    databaseName: sprout
+    user: sprout
+    postgresMajorVersion: '16'
+    ipAllowList: [] # no access from the internet
